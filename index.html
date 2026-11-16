@@ -94,11 +94,12 @@ const q=v.q.trim().toLowerCase(),m=sortOf('list');
 const a=S.objs.filter(o=>o.systems&&o.systems[v.sys]&&((o.customer||'')+' '+o.name+' '+o.addr).toLowerCase().includes(q));
 if(!S.objs.length)return '<div class="empty">'+(DB?(ADMIN?'Объектов пока нет.<br>Добавьте первый кнопкой «+ Новый объект».':'Объектов пока нет. Их добавляет администратор.'):STATUS)+'</div>';
 if(!a.length)return '<div class="empty">'+(q?'Ничего не найдено':'К этой системе пока не привязан ни один объект'+(ADMIN?'.<br>Отметьте её в карточке объекта: «Изменить объект».':'.'))+'</div>';
-const card=(o,withC)=>{const s=st(o);return `<button class="card" onclick="go('obj','${o.id}')">${withC?`<div class="mut" style="font-weight:600">${esc(o.customer||'Без заказчика')}</div>`:''}<div class="row"><b>${esc(o.name)}</b><span class="b ${s[0]}">${s[1]}</span></div><div class="mut">${esc(o.addr)}</div></button>`};
+const card=(o,withC)=>{const s=st(o);return `<button class="card" onclick="go('obj','${o.id}')">${withC&&!nameIsCust(o)?`<div class="mut" style="font-weight:600">${esc(o.customer||'Без заказчика')}</div>`:''}<div class="row"><b>${esc(o.name)}</b><span class="b ${s[0]}">${s[1]}</span></div><div class="mut">${esc(o.addr)}</div></button>`};
 if(m==='date')return a.sort((x,y)=>st(x)[2]-st(y)[2]||oLab(x).localeCompare(oLab(y))).map(o=>card(o,true)).join('');
 const g={},NO='Без заказчика';a.forEach(o=>(g[o.customer||NO]=g[o.customer||NO]||[]).push(o));
 const ks=Object.keys(g).sort((x,y)=>(x===NO)-(y===NO)||x.localeCompare(y));
-return ks.map(k=>`<div class="mut" style="margin:14px 0 6px;font-weight:600">${esc(k)}</div>`+g[k].sort((x,y)=>x.name.localeCompare(y.name)).map(o=>card(o,false)).join('')).join('')}
+return ks.map(k=>{const os=g[k].sort((x,y)=>x.name.localeCompare(y.name)),solo=os.length===1&&nameIsCust(os[0]);
+return (solo?'':`<div class="mut" style="margin:14px 0 6px;font-weight:600">${esc(k)}</div>`)+os.map(o=>card(o,false)).join('')}).join('')}
 function vList(){return `${tabsHtml()}<div class="mut" style="margin:0 0 8px">${SYS[v.sys].n}</div>${sortBar('list')}${ADMIN?`<div style="display:flex;gap:8px;margin:0 0 10px"><button class="btn s" style="margin:0" onclick="newObj()">+ Новый объект</button><button class="btn s" style="margin:0" onclick="go('import')">Импорт из Excel</button></div>`:''}<input type="search" id="q" placeholder="Поиск по названию или адресу" value="${esc(v.q)}"><div id="lst">${listHtml()}</div>`}
 
 const yearsIn=(o,d)=>o.year_in?(d?Number(d.slice(0,4)):new Date().getFullYear())-o.year_in:0;
@@ -110,7 +111,8 @@ const techList=()=>[...new Set(S.checks.flatMap(c=>[c.tech,c.tech2]).filter(Bool
 function monthsList(sel){const a=new Set(S.checks.map(c=>c.date.slice(0,7)));a.add(today().slice(0,7));if(sel)a.add(sel);return [...a].sort().reverse()}
 function monthSel(key,val,all){return `<select onchange="v['${key}']=this.value;render()">${all?'<option value="">Все месяцы</option>':''}${monthsList(val).map(m=>`<option value="${m}" ${m===val?'selected':''}>${mLabel(m)}</option>`).join('')}</select>`}
 async function setAct(id,val){await enqueue({type:'act',id,val})}
-const oLab=o=>(o.customer?o.customer+' · ':'')+o.name;
+const nameIsCust=o=>!!(o.customer&&String(o.customer).trim().toLowerCase()===String(o.name).trim().toLowerCase());
+const oLab=o=>(o.customer&&!nameIsCust(o)?o.customer+' · ':'')+o.name;
 const EQ={fire:[['ps','ПС'],['soue','СОУЭ'],['spi','СПИ']]};
 const eqRows=k=>EQ[k]||[['main','']];
 const eqL=(k,x)=>k==='fire'?['Тип оборудования '+x,'Количество единиц ('+x+')']:['Тип и модель оборудования','Количество единиц оборудования'];
@@ -132,13 +134,11 @@ if(yr!==null&&!(yr>=1950&&yr<=new Date().getFullYear())){alert('Год ввод�
 const equipment={};document.querySelectorAll('.si_t').forEach(e=>{equipment[e.dataset.k]={type:e.value.trim(),qty:''}});document.querySelectorAll('.si_q').forEach(e=>{equipment[e.dataset.k].qty=e.value.trim()});
 await enqueue({type:'sinfo',row:{object_id:oid,system:v.sys,project_no:$('#si_pno').value.trim(),year_in:yr,equipment,updated_at:new Date().toISOString()}});go('obj',oid)}
 function newObj(){v.id=null;v.pre=null;go('form',null)}
-function sameName(cb){const n=$('#f_name'),c=$('#f_cust');if(cb.checked){if(c.value&&S.objs.some(o=>o.customer===c.value&&o.id!==v.id)&&!confirm('У этого заказчика уже есть другие объекты. Всё равно подставить его название?')){cb.checked=false;return}n.value=c.value;n.disabled=true;c.oninput=()=>{n.value=c.value}}else{n.disabled=false;c.oninput=null}}
 function newFor(id){const o=S.objs.find(x=>x.id===id);v.pre={customer:o.customer||'',contact:o.contact||'',phone:o.phone||''};go('form',null)}
 function vForm(){if(!ADMIN)return '<div class="empty">Добавлять и менять объекты может только администратор</div>';const o=S.objs.find(x=>x.id===v.id)||Object.assign({name:'',addr:'',customer:'',contact:'',phone:'',systems:{},notes:''},v.pre||{});
 return `<button class="back" onclick="${v.id?`go('obj',v.id)`:`go('list')`}">‹ Назад</button>
 <label>Заказчик</label><input id="f_cust" list="cl" value="${esc(o.customer)}" placeholder="Например, МУП ОК и ТС"><datalist id="cl">${[...new Set(S.objs.map(x=>x.customer).filter(Boolean))].sort().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
 <label>Название объекта *</label><input id="f_name" value="${esc(oLab(o))}" placeholder="Например, Котельная №1">
-<label class="chk" style="margin:0 0 10px"><input type="checkbox" id="f_same" onchange="sameName(this)">Название объекта = заказчик (у заказчика один объект)</label>
 <label>Адрес *</label><input id="f_addr" value="${esc(o.addr)}">
 <label>Контактное лицо</label><input id="f_contact" value="${esc(o.contact)}">
 <label>Телефон</label><input id="f_phone" value="${esc(o.phone)}" type="tel" inputmode="tel">
@@ -269,7 +269,9 @@ else if(it.type==='act'){const c=checks.find(x=>x.id===it.id);if(c)c.act_signed=
 else if(it.type==='reqnew'){if(!reqs.some(x=>x.id===it.id))reqs.push(Object.assign({status:'open',created_at:it.at,object_id:null,system:null,to_role:'tech'},it.row,{id:it.id,_pending:1}))}
 else if(it.type==='reqdone'){const r=reqs.find(x=>x.id===it.id);if(r&&r.status==='open'){r.status='done';r.done_at=it.at;r.done_by_name=it.tname;r.done_comment=it.cmt;r._pending=1}}
 else if(it.type==='sinfo'){const i=sinfo.findIndex(x=>x.object_id===it.row.object_id&&x.system===it.row.system);if(i>=0)sinfo[i]=Object.assign({},sinfo[i],it.row);else sinfo.push(Object.assign({},it.row))}}
-S.objs=BASE.objs;S.checks=checks;S.photos=photos;S.sinfo=sinfo;S.reqs=reqs;S.notes=BASE.notes}
+S.objs=BASE.objs;S.checks=checks;S.photos=photos;S.sinfo=sinfo;S.reqs=reqs;
+const live=new Set(reqs.map(r=>r.id)),fin=new Set(reqs.filter(r=>r.status==='done').map(r=>r.id));
+S.notes=BASE.notes.filter(n=>!((n.kind==='request'||n.kind==='request_admin')&&n.ref_id&&(fin.has(n.ref_id)||(reqs.length&&!live.has(n.ref_id)))))}
 async function enqueue(it){it.at=new Date().toISOString();const k=await IDB.add(it);it.seq=k;OB.push(it);mergeView();refresh();flush()}
 let notesReady=false;
 async function load(){if(!USER)return;
@@ -354,7 +356,7 @@ let h=repTabs()+sortBar('table')+'<label>Месяц</label>'+monthSel('tm',m,fal
 `<label class="chk"><input type="checkbox" ${only?'checked':''} onchange="v.to=this.checked;render()">Только не проверенные</label>`+
 `<div class="mut" style="margin:0 0 8px">Не проверено в этом месяце: ${todo.length} из ${rows.length} (жёлтым)</div>`;
 if(!shown.length)return h+'<div class="empty">Нет объектов для показа</div>';
-return h+`<div style="overflow-x:auto"><table class="tb"><tr><th>Объект</th><th>Система</th><th>Дата проверки</th></tr>${shown.map(r=>`<tr class="${r.done?'':'y'}" onclick="v.sys='${r.k}';go('obj','${r.o.id}')"><td>${esc(oLab(r.o))}</td><td>${sysS(r.k)}</td><td>${r.done?fmt(r.last.date):`<span class="mut">${r.last?fmt(r.last.date)+' (ранее)':'не проверялся'}</span>`}</td></tr>`).join('')}</table></div>`}
+return h+`<div style="overflow-x:auto"><table class="tb"><tr><th>Объект</th><th>Система</th><th>Дата проверки</th></tr>${shown.map((r,ix)=>`<tr class="${r.done?'':'y'}" onclick="v.sys='${r.k}';go('obj','${r.o.id}')"><td>${(sortOf('table')==='name'&&ix>0&&shown[ix-1].o.id===r.o.id)?'':esc(oLab(r.o))}</td><td>${sysS(r.k)}</td><td>${r.done?fmt(r.last.date):`<span class="mut">${r.last?fmt(r.last.date)+' (ранее)':'не проверялся'}</span>`}</td></tr>`).join('')}</table></div>`}
 function impBuild(rows){const H=(rows[0]||[]).map(x=>String(x).trim().toLowerCase()),ix=k=>H.findIndex(h=>h.includes(k));
 let nm=ix('назван');if(nm<0)nm=ix('объект');
 const c={cu:ix('заказчик'),ad:ix('адрес'),nm,co:ix('контакт'),ph:ix('тел')};
@@ -433,7 +435,7 @@ const OTHER='Прочая неисправность';
 function openFault(oid,k){const c=S.checks.filter(x=>x.oid===oid&&x.system===k).sort((a,b)=>b.date.localeCompare(a.date))[0];return c&&c.bad.length?c:null}
 function openFaultHtml(o){const c=openFault(o.id,v.sys);return c?`<div class="card" style="border-color:var(--warn)"><b style="color:var(--warn)">Не закрыта неисправность</b><div class="mut">Проверка ${fmt(c.date)}: ${c.bad.map(esc).join('; ')}</div>${c.comment?`<div class="mut">${esc(c.comment)}</div>`:''}</div>`:''}
 function reqCard(r){const o=r.object_id?(S.objs.find(x=>x.id===r.object_id)||{name:'(удалён)',addr:''}):null,done=r.status==='done',toAdm=r.to_role==='admin',canDo=toAdm?ADMIN:true;
-return `<div class="card" style="${done?'background:var(--okb);border-color:var(--ok)':''}">${o?`<div class="mut" style="font-weight:600">${esc(o.customer||'Без заказчика')}</div><div class="row"><b>${esc(o.name)}</b>${r.urgent&&!done?'<span class="b bad">Срочно</span>':''}</div><div class="mut">${esc(o.addr)}</div>`:`<div class="row"><b>Прочая заявка</b>${r.urgent&&!done?'<span class="b bad">Срочно</span>':''}</div>`}${r.system?`<div class="mut">${sysS(r.system)}</div>`:''}${r.category?`<div style="margin-top:4px"><span class="b new">${esc(r.category)}</span></div>`:''}<p style="margin:8px 0">${esc(r.body)}</p><div class="mut">${r.created_by_name?'От: '+esc(r.created_by_name)+'. ':''}Создана ${fmtT(r.created_at)}${r._pending&&!done?' (не отправлено)':''}</div>${done?`<div style="margin:6px 0;color:var(--ok);font-weight:500">Выполнено ${fmtT(r.done_at)}${r.done_by_name?', '+esc(r.done_by_name):''}${r._pending?' (не отправлено)':''}</div>${r.done_comment?`<div class="mut">${esc(r.done_comment)}</div>`:''}`:''}${canDo?`<label class="chk" style="margin:10px 0 0"><input type="checkbox" ${done?'checked':''} ${done&&!ADMIN?'disabled':''} onchange="reqDone('${r.id}',this)">Выполнено</label>`:(done?'':'<div class="mut" style="margin-top:8px">Выполняет администратор</div>')}${ADMIN?`<button class="btn d" style="margin:8px 0 0;padding:9px" onclick="reqDel('${r.id}')">Удалить заявку</button>`:''}</div>`}
+return `<div class="card" style="${done?'background:var(--okb);border-color:var(--ok)':''}">${o?`${nameIsCust(o)?'':`<div class="mut" style="font-weight:600">${esc(o.customer||'Без заказчика')}</div>`}<div class="row"><b>${esc(o.name)}</b>${r.urgent&&!done?'<span class="b bad">Срочно</span>':''}</div><div class="mut">${esc(o.addr)}</div>`:`<div class="row"><b>Прочая заявка</b>${r.urgent&&!done?'<span class="b bad">Срочно</span>':''}</div>`}${r.system?`<div class="mut">${sysS(r.system)}</div>`:''}${r.category?`<div style="margin-top:4px"><span class="b new">${esc(r.category)}</span></div>`:''}<p style="margin:8px 0">${esc(r.body)}</p><div class="mut">${r.created_by_name?'От: '+esc(r.created_by_name)+'. ':''}Создана ${fmtT(r.created_at)}${r._pending&&!done?' (не отправлено)':''}</div>${done?`<div style="margin:6px 0;color:var(--ok);font-weight:500">Выполнено ${fmtT(r.done_at)}${r.done_by_name?', '+esc(r.done_by_name):''}${r._pending?' (не отправлено)':''}</div>${r.done_comment?`<div class="mut">${esc(r.done_comment)}</div>`:''}`:''}${canDo?`<label class="chk" style="margin:10px 0 0"><input type="checkbox" ${done?'checked':''} ${done&&!ADMIN?'disabled':''} onchange="reqDone('${r.id}',this)">Выполнено</label>`:(done?'':'<div class="mut" style="margin-top:8px">Выполняет администратор</div>')}${ADMIN?`<button class="btn d" style="margin:8px 0 0;padding:9px" onclick="reqDel('${r.id}')">Удалить заявку</button>`:''}</div>`}
 function vReqs(){const f=v.rf||'open',rt=v.rt||(ADMIN?'admin':'tech'),m=sortOf('reqs'),tr=r=>r.to_role||'tech';
 const cnt=k=>S.reqs.filter(r=>tr(r)===k&&r.status==='open').length;
 const lab=r=>r.object_id?objName(r.object_id):'яяя';
@@ -455,8 +457,10 @@ let REQ_OBJ='';
 function reqObjList(){const q=(($('#r_q')&&$('#r_q').value)||'').trim().toLowerCase(),NO='Без заказчика',g={};
 S.objs.filter(o=>((o.customer||'')+' '+o.name).toLowerCase().includes(q)).forEach(o=>(g[o.customer||NO]=g[o.customer||NO]||[]).push(o));
 const ks=Object.keys(g).sort((x,y)=>(x===NO)-(y===NO)||x.localeCompare(y));
+const btn=o=>`<button class="card ${REQ_OBJ===o.id?'sel':''}" style="padding:9px 14px" onclick="pickObj('${o.id}')">${esc(o.name)}</button>`;
 return `<button class="card ${REQ_OBJ==='other'?'sel':''}" style="padding:9px 14px" onclick="pickObj('other')"><b>Прочая заявка</b> <span class="mut">(без объекта)</span></button>`+
-ks.map(k=>`<div class="mut" style="margin:10px 0 4px;font-weight:600">${esc(k)}</div>`+g[k].sort((a,b)=>a.name.localeCompare(b.name)).map(o=>`<button class="card ${REQ_OBJ===o.id?'sel':''}" style="padding:9px 14px" onclick="pickObj('${o.id}')">${esc(o.name)}</button>`).join('')).join('')}
+ks.map(k=>{const os=g[k].sort((a,b)=>a.name.localeCompare(b.name));
+return (os.length===1&&nameIsCust(os[0])?'':`<div class="mut" style="margin:10px 0 4px;font-weight:600">${esc(k)}</div>`)+os.map(btn).join('')}).join('')}
 function reqSel(){if(REQ_OBJ==='other')return 'Прочая заявка (без объекта)';const o=S.objs.find(x=>x.id===REQ_OBJ);return o?oLab(o):'не выбрано'}
 function pickObj(id){REQ_OBJ=id;$('#r_list').innerHTML=reqObjList();$('#r_sel').textContent='Выбрано: '+reqSel()}
 function vReqForm(){
@@ -549,7 +553,7 @@ const st=sb.storage.from('journal'),paths=[];photoRows.forEach(p=>{paths.push(p.
 for(const b of chunk(paths,100)){const r=await st.remove(b);if(r.error)throw r.error}
 if(mode==='photos'){for(const b of chunk(photoRows.map(p=>p.id),100)){const r=await sb.from('photos').delete().in('id',b);if(r.error)throw r.error}}
 else{for(const b of chunk(photoRows.filter(p=>!checkIds.includes(p.check_id)).map(p=>p.id),100)){const r=await sb.from('photos').delete().in('id',b);if(r.error)throw r.error}
-for(const b of chunk(checkIds,100)){const r=await sb.from('checks').delete().in('id',b);if(r.error)throw r.error}}}
+for(const b of chunk(checkIds,100)){let r=await sb.from('notifications').delete().in('ref_id',b);if(r.error)throw r.error;r=await sb.from('checks').delete().in('id',b);if(r.error)throw r.error}}}
 async function delCheck(id){const c=S.checks.find(x=>x.id===id);if(!c||!ADMIN||!needOnline())return;
 const ph=S.photos.filter(p=>p.check_id===id&&!p._pending);
 if(!confirm('Удалить проверку от '+fmt(c.date)+' ('+objName(c.oid)+', '+sysS(c.system)+') и фото к ней ('+ph.length+')? Это нельзя отменить.'))return;
