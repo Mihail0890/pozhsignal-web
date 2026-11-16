@@ -1,6 +1,6 @@
 importScripts('web-config.js');
 try { importScripts('sw-fcm.js'); } catch (e) {}
-const CACHE = 'pozh-1794804161';
+const CACHE = 'pozh-1794861288';
 const SHELL = ['./', 'index.html', 'supabase.js', 'xlsx.full.min.js', 'manifest.webmanifest', 'icon-192.png', 'icon-180.png'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

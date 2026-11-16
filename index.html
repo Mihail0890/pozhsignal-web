@@ -80,7 +80,8 @@ const fmt=d=>new Date(d).toLocaleDateString('ru-RU');
 const today=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 let v={t:'list',id:null,q:'',sys:'fire'};
-const hist=(id,k)=>S.checks.filter(c=>c.oid===id&&c.system===(k||v.sys)).sort((a,b)=>b.date.localeCompare(a.date));
+const histAll=(id,k)=>S.checks.filter(c=>c.oid===id&&c.system===(k||v.sys)).sort((a,b)=>b.date.localeCompare(a.date));
+const hist=(id,k)=>S.checks.filter(c=>c.oid===id&&c.system===(k||v.sys)&&!c.unplanned).sort((a,b)=>b.date.localeCompare(a.date));
 function dueDate(o){const l=hist(o.id)[0];if(!l)return null;const d=new Date(l.date);d.setMonth(d.getMonth()+Number((o.systems||{})[v.sys]||3));return d}
 function st(o){const d=dueDate(o);if(!d)return['new','Не проверен',-1e9];const n=Math.ceil((d-new Date())/864e5);
 if(n<0)return['bad','Просрочено '+(-n)+' дн.',n];if(n<=14)return['warn','Через '+n+' дн.',n];return['ok','До '+fmt(d),n]}
@@ -111,6 +112,7 @@ const techList=()=>[...new Set(S.checks.flatMap(c=>[c.tech,c.tech2]).filter(Bool
 function monthsList(sel){const a=new Set(S.checks.map(c=>c.date.slice(0,7)));a.add(today().slice(0,7));if(sel)a.add(sel);return [...a].sort().reverse()}
 function monthSel(key,val,all){return `<select onchange="v['${key}']=this.value;render()">${all?'<option value="">Все месяцы</option>':''}${monthsList(val).map(m=>`<option value="${m}" ${m===val?'selected':''}>${mLabel(m)}</option>`).join('')}</select>`}
 async function setAct(id,val){await enqueue({type:'act',id,val})}
+const stripCust=(n,c)=>{n=String(n==null?'':n);c=c?String(c).trim():'';if(!c)return n;const p=c+' · ';let i=0;while(n.startsWith(p)&&n.length>p.length&&i++<10)n=n.slice(p.length).trim();return n};
 const nameIsCust=o=>!!(o.customer&&String(o.customer).trim().toLowerCase()===String(o.name).trim().toLowerCase());
 const oLab=o=>(o.customer&&!nameIsCust(o)?o.customer+' · ':'')+o.name;
 const EQ={fire:[['ps','ПС'],['soue','СОУЭ'],['spi','СПИ']]};
@@ -138,7 +140,7 @@ function newFor(id){const o=S.objs.find(x=>x.id===id);v.pre={customer:o.customer
 function vForm(){if(!ADMIN)return '<div class="empty">Добавлять и менять объекты может только администратор</div>';const o=S.objs.find(x=>x.id===v.id)||Object.assign({name:'',addr:'',customer:'',contact:'',phone:'',systems:{},notes:''},v.pre||{});
 return `<button class="back" onclick="${v.id?`go('obj',v.id)`:`go('list')`}">‹ Назад</button>
 <label>Заказчик</label><input id="f_cust" list="cl" value="${esc(o.customer)}" placeholder="Например, МУП ОК и ТС"><datalist id="cl">${[...new Set(S.objs.map(x=>x.customer).filter(Boolean))].sort().map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
-<label>Название объекта *</label><input id="f_name" value="${esc(oLab(o))}" placeholder="Например, Котельная №1">
+<label>Название объекта *</label><input id="f_name" value="${esc(o.name)}" placeholder="Например, Котельная №1">
 <label>Адрес *</label><input id="f_addr" value="${esc(o.addr)}">
 <label>Контактное лицо</label><input id="f_contact" value="${esc(o.contact)}">
 <label>Телефон</label><input id="f_phone" value="${esc(o.phone)}" type="tel" inputmode="tel">
@@ -151,7 +153,7 @@ const g=i=>$('#f_'+i).value.trim();
 if(!g('name')||!g('addr')){alert('Укажите название и адрес объекта');return}
 const systems={};document.querySelectorAll('.fs').forEach(e=>{if(Number(e.value))systems[e.dataset.k]=Number(e.value)});
 if(!Object.keys(systems).length){alert('Отметьте хотя бы одну систему на объекте');return}
-const d={customer:g('cust'),name:g('name'),addr:g('addr'),contact:g('contact'),phone:g('phone'),systems,notes:g('notes')};
+const d={customer:g('cust'),name:stripCust(g('name'),g('cust')),addr:g('addr'),contact:g('contact'),phone:g('phone'),systems,notes:g('notes')};
 if(!DB||!ADMIN){alert('Нет прав или нет связи с базой');return}
 if(!needOnline())return;
 const r=v.id?await sb.from('objects').update(d).eq('id',v.id).select().single():await sb.from('objects').insert(d).select().single();
@@ -160,13 +162,14 @@ v.pre=null;await load();go('obj',r.data.id)}
 
 function vObj(){const o=S.objs.find(x=>x.id===v.id);if(!o){return vList()}
 const ks=Object.keys(SYS).filter(k=>o.systems&&o.systems[k]);if(ks.length&&!ks.includes(v.sys))v.sys=ks[0];
-const s=st(o),h=hist(o.id);
+const s=st(o),h=histAll(o.id);
 return `<button class="back" onclick="go('list')">‹ Объекты</button>
 <div class="tabs">${ks.map(k=>`<button class="${k===v.sys?'on':''}" onclick="setSys('${k}')">${SYS[k].s}</button>`).join('')}</div><div class="mut" style="margin:0 0 8px">${SYS[v.sys].n}</div>
 <div class="card"><div class="row"><b>${esc(oLab(o))}</b><span class="b ${s[0]}">${s[1]}</span></div>
 <div class="mut">${esc(o.addr)}</div>
 ${o.contact?`<p>${esc(o.contact)}</p>`:''}
 ${o.phone?`<p>Тел.: <a href="tel:${esc(o.phone.replace(/[^0-9+]/g,''))}" style="color:var(--red)">${esc(o.phone)}</a></p>`:''}
+<div style="margin:4px 0"><a href="#" onclick="go('contact','${o.id}');return false" style="color:var(--red)">${o.contact||o.phone?'Изменить контакт и телефон':'Добавить контакт и телефон'}</a></div>
 <div class="mut">Периодичность ТО: ${PER[o.systems&&o.systems[v.sys]]||''}</div>
 ${o.notes?`<p class="mut">${esc(o.notes)}</p>`:''}</div>
 ${openFaultHtml(o)}${sinfoHtml(o)}
@@ -174,16 +177,26 @@ ${openFaultHtml(o)}${sinfoHtml(o)}
 ${ADMIN?`<button class="btn s" onclick="go('form','${o.id}')">Изменить объект</button><button class="btn s" onclick="newFor('${o.id}')">Добавить ещё объект этого заказчика</button>`:''}
 ${photosHtml(o)}
 <h3>История проверок</h3>
-${h.length?h.map(c=>`<div class="card"><div class="row"><b>${fmt(c.date)}</b><span class="b ${c.bad.length?'bad':'ok'}">${c.bad.length?'Замечания':'Исправна'}</span></div><div class="mut">${techs(c)}</div><div style="margin:4px 0">${actBadge(c)}${c.life_exceeded?' '+lifeB:''}${c._pending?' <span class="b new">Не отправлено</span>':''}</div>${c.bad.length?`<p>${c.bad.map(esc).join('; ')}</p>`:''}${c.comment?`<p class="mut">${esc(c.comment)}</p>`:''}${chkPhotos(c)}${actBtn(c)}${delBtn(c)}</div>`).join(''):'<div class="empty">Проверок ещё не было</div>'}
+${h.length?h.map(c=>`<div class="card"><div class="row"><b>${fmt(c.date)}</b><span class="b ${c.bad.length?'bad':'ok'}">${c.bad.length?'Замечания':'Исправна'}</span></div><div class="mut">${techs(c)}</div><div style="margin:4px 0">${unpB(c)}${actBadge(c)}${c.life_exceeded?' '+lifeB:''}${c._pending?' <span class="b new">Не отправлено</span>':''}</div>${c.bad.length?`<p>${c.bad.map(esc).join('; ')}</p>`:''}${c.comment?`<p class="mut">${esc(c.comment)}</p>`:''}${chkPhotos(c)}${actBtn(c)}${delBtn(c)}</div>`).join(''):'<div class="empty">Проверок ещё не было</div>'}
 ${ADMIN?`<button class="btn d" onclick="delObj('${o.id}')">Удалить объект</button>`:''}`}
 async function delObj(id){if(!DB||!ADMIN||!needOnline()||!confirm('Удалить объект и всю историю проверок?'))return;
 const ps=S.photos.filter(p=>p.object_id===id).flatMap(p=>[p.path,tp(p.path)]);if(ps.length)await sb.storage.from('journal').remove(ps);
 const r=await sb.from('objects').delete().eq('id',id);if(r.error){alert('Ошибка: '+r.error.message);return}
 await load();go('list')}
 
+function ckApply(mode){document.querySelectorAll('.ci').forEach(c=>{c.checked=mode==='ok'?true:c.dataset.was!=='1'})}
+function ckUI(){const unp=$('#c_type').value==='1',nf=$('#c_fx2').checked;$('#c_unp').style.display=unp?'':'none';
+const lock=unp&&!nf;document.querySelectorAll('.ci').forEach(c=>{c.disabled=lock});const it=$('#c_items');if(it)it.style.opacity=lock?'.5':'1'}
+function ckType(){if($('#c_type').value!=='1'){$('#c_fx1').checked=false;$('#c_fx2').checked=false}ckApply('def');ckUI()}
+function ckFix(w){const a=$('#c_fx1'),b=$('#c_fx2');
+if(w==='1'&&a.checked){b.checked=false;ckApply('ok')}else if(w==='2'&&b.checked){a.checked=false;ckApply('def')}else ckApply('def');ckUI()}
 function vCheck(){const o=S.objs.find(x=>x.id===v.id),items=SYS[v.sys].items.concat([OTHER]),prev=openFault(o.id,v.sys),pb=prev?prev.bad:[];
 return `<button class="back" onclick="go('obj','${o.id}')">‹ ${esc(oLab(o))}</button>
 <div class="mut" style="margin:0 0 8px">${SYS[v.sys].n}</div>
+<label>Вид работ</label><select id="c_type" onchange="ckType()"><option value="0">Плановое ТО</option><option value="1">Внеплановый выезд на объект</option></select>
+<div id="c_unp" style="display:none"><div class="mut" style="margin:0 0 6px">Результат выезда (отметьте одно):</div>
+<label class="chk"><input type="checkbox" id="c_fx1" onchange="ckFix('1')">Неисправность устранена</label>
+<label class="chk"><input type="checkbox" id="c_fx2" onchange="ckFix('2')">Неисправность не устранена (отметьте ниже, что неисправно)</label></div>
 ${prev?`<div class="card" style="border-color:var(--warn)"><b style="color:var(--warn)">Напоминание: не закрыта неисправность</b><div class="mut">Проверка ${fmt(prev.date)}: ${prev.bad.map(esc).join('; ')}</div>${prev.comment?`<div class="mut">${esc(prev.comment)}</div>`:''}<div class="mut">Эти пункты ниже уже сняты. Отметьте их, если неисправность устранена.</div></div>`:''}
 ${yearsIn(sinfo(o.id,v.sys))>10?`<div class="card" style="border-color:var(--warn);color:var(--warn)">Система введена в эксплуатацию в ${sinfo(o.id,v.sys).year_in} г. (${yearsIn(sinfo(o.id,v.sys))} лет): превышен предельный срок службы. Это будет отмечено в проверке.</div>`:''}
 <label>Дата проверки</label><input type="date" id="c_date" value="${today()}">
@@ -191,7 +204,7 @@ ${yearsIn(sinfo(o.id,v.sys))>10?`<div class="card" style="border-color:var(--war
 <label>Техник 2 (если проверку проводили двое)</label><input id="c_tech2" list="tl" placeholder="Фамилия И. О.">
 <datalist id="tl">${techList().map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
 <label>Отметьте, что исправно</label>
-${items.map((t,i)=>{const nm=i<items.length-1?t:OTHER,was=pb.includes(nm);return `<label class="chk"><input type="checkbox" class="ci" data-i="${i}" ${was?'':'checked'}>${i<items.length-1?t:'Отсутствует прочая неисправность'}${was?' <span class="b warn">была неисправна</span>':''}</label>`}).join('')}
+<div id="c_items">${items.map((t,i)=>{const nm=i<items.length-1?t:OTHER,was=pb.includes(nm);return `<label class="chk"><input type="checkbox" class="ci" data-i="${i}" data-was="${was?1:0}" ${was?'':'checked'}>${i<items.length-1?t:'Отсутствует прочая неисправность'}${was?' <span class="b warn">была неисправна</span>':''}</label>`}).join('')}</div>
 <label style="margin-top:8px;display:block">Комментарий (обязателен, если снята отметка «прочая неисправность»)</label>
 <textarea id="c_com" rows="3"></textarea>
 <label>Акт</label><select id="c_act"><option value="0">Акт не подписан</option><option value="1">Акт подписан</option></select>
@@ -200,15 +213,20 @@ ${items.map((t,i)=>{const nm=i<items.length-1?t:OTHER,was=pb.includes(nm);return
 let saving=false;
 async function saveCheck(oid){if(saving)return;
 const tech2=$('#c_tech2').value.trim(),tech=$('#c_tech').value.trim();if(!tech){alert('Укажите фамилию техника');return}
+const unp=$('#c_type').value==='1',fx1=$('#c_fx1').checked,fx2=$('#c_fx2').checked;
+if(unp&&!fx1&&!fx2){alert('Отметьте результат выезда: неисправность устранена или не устранена');return}
 const items=SYS[v.sys].items.concat([OTHER]);
-const bad=[...document.querySelectorAll('.ci')].filter(c=>!c.checked).map(c=>items[c.dataset.i]),com=$('#c_com').value.trim();
+let bad=[...document.querySelectorAll('.ci')].filter(c=>!c.checked).map(c=>items[c.dataset.i]);
+if(unp&&fx1)bad=[];
+if(unp&&fx2&&!bad.length){alert('Неисправность не устранена: отметьте, какие элементы неисправны');return}
+const com=$('#c_com').value.trim();
 if(bad.includes(OTHER)&&!com){alert('Снята отметка «Отсутствует прочая неисправность». Опишите в комментарии, что неисправно.');$('#c_com').focus();return}
 S.tech=tech;try{localStorage.setItem('pozh-tech',tech)}catch(e){}
 const date=$('#c_date').value||today(),fs=[...$('#c_ph').files];
 const si=sinfo(oid,v.sys),lifeEx=!!(si.year_in&&yearsIn(si,date)>10);
 saving=true;try{const id=uuid(),m=date.slice(0,7),photos=[];let bp=0;
 for(const f of fs){try{photos.push(await mkPhoto(oid,id,m,f))}catch(e){bp++}}
-await enqueue({type:'check',id,row:{object_id:oid,system:v.sys,date,tech,tech2,bad,comment:com,act_signed:$('#c_act').value==='1',life_exceeded:lifeEx},photos});
+await enqueue({type:'check',id,row:{object_id:oid,system:v.sys,date,tech,tech2,bad,comment:com,act_signed:$('#c_act').value==='1',life_exceeded:lifeEx,unplanned:unp,fixed:unp?(fx1?true:false):null},photos});
 go('obj',oid);if(bp)alert('Проверка сохранена, но не удалось обработать фото: '+bp)}finally{saving=false}}
 
 function vJournal(){const m=sortOf('journal');
@@ -216,12 +234,12 @@ const a=S.checks.filter(c=>c.system===v.sys&&(!v.m||c.date.startsWith(v.m))).sor
 const tb=tabsHtml()+sortBar('journal')+'<label>Месяц</label>'+monthSel('m',v.m||'',true);
 const adm=ADMIN?`<button class="btn d" onclick="go('cleanup')">Очистка журнала: удалить проверки и фото за период…</button>`:'';
 if(!a.length)return tb+'<div class="empty">Нет проверок за выбранный период</div>'+adm;
-return tb+a.map(c=>{const o=S.objs.find(x=>x.id===c.oid)||{name:'(удалён)'};return `<div class="card" style="cursor:pointer" onclick="go('obj','${c.oid}')"><div class="row"><b>${esc(oLab(o))}</b><span class="b ${c.bad.length?'bad':'ok'}">${c.bad.length?'Замечания':'Исправна'}</span></div><div class="mut">${fmt(c.date)} · ${techs(c)}</div>${c.bad.length?`<div style="margin-top:4px">${c.bad.map(esc).join('; ')}</div>`:''}${c.comment?`<div class="mut" style="margin-top:4px">Комментарий: ${esc(c.comment)}</div>`:''}<div style="margin-top:4px">${actBadge(c)}${c.life_exceeded?' '+lifeB:''}${c._pending?' <span class="b new">Не отправлено</span>':''}</div>${delBtn(c)}</div>`}).join('')+
+return tb+a.map(c=>{const o=S.objs.find(x=>x.id===c.oid)||{name:'(удалён)'};return `<div class="card" style="cursor:pointer" onclick="go('obj','${c.oid}')"><div class="row"><b>${esc(oLab(o))}</b><span class="b ${c.bad.length?'bad':'ok'}">${c.bad.length?'Замечания':'Исправна'}</span></div><div class="mut">${fmt(c.date)} · ${techs(c)}</div>${c.bad.length?`<div style="margin-top:4px">${c.bad.map(esc).join('; ')}</div>`:''}${c.comment?`<div class="mut" style="margin-top:4px">Комментарий: ${esc(c.comment)}</div>`:''}<div style="margin-top:4px">${unpB(c)}${actBadge(c)}${c.life_exceeded?' '+lifeB:''}${c._pending?' <span class="b new">Не отправлено</span>':''}</div>${delBtn(c)}</div>`}).join('')+
 `<button class="btn s" onclick="exportCsv()">Скопировать журнал за выбранный период (все системы) в CSV</button>`+adm}
 function exportCsv(){
 const q=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
-const rows=[['Дата','Система','Объект','Адрес','Техник 1','Техник 2','Результат','Замечания','Акт','Срок службы превышен','Комментарий']];
-S.checks.filter(c=>!v.m||c.date.startsWith(v.m)).sort((x,y)=>x.date.localeCompare(y.date)).forEach(c=>{const o=S.objs.find(x=>x.id===c.oid)||{name:'',addr:''};rows.push([fmt(c.date),SYS[c.system]?SYS[c.system].n:c.system,oLab(o),o.addr,c.tech,c.tech2||'',c.bad.length?'Замечания':'Исправна',c.bad.join('; '),c.act_signed?'подписан':'не подписан',c.life_exceeded?'да':'',c.comment])});
+const rows=[['Дата','Система','Объект','Адрес','Техник 1','Техник 2','Вид работ','Результат','Замечания','Акт','Срок службы превышен','Комментарий']];
+S.checks.filter(c=>!v.m||c.date.startsWith(v.m)).sort((x,y)=>x.date.localeCompare(y.date)).forEach(c=>{const o=S.objs.find(x=>x.id===c.oid)||{name:'',addr:''};rows.push([fmt(c.date),SYS[c.system]?SYS[c.system].n:c.system,oLab(o),o.addr,c.tech,c.tech2||'',c.unplanned?('Внеплановый выезд'+(c.fixed===true?' (устранена)':c.fixed===false?' (не устранена)':'')):'Плановое ТО',c.bad.length?'Замечания':'Исправна',c.bad.join('; '),c.act_signed?'подписан':'не подписан',c.life_exceeded?'да':'',c.comment])});
 const t=rows.map(r=>r.map(q).join(';')).join('\n');
 navigator.clipboard.writeText(t).then(()=>alert('Скопировано. Вставьте в Excel или заметки.')).catch(()=>prompt('Скопируйте текст вручную:',t))}
 const objName=id=>{const o=S.objs.find(o=>o.id===id);return o?oLab(o):'(удалён)'};
@@ -233,7 +251,7 @@ const a=S.checks.filter(c=>c.date.startsWith(m)&&c.bad.length),gr=groupBy(a);
 let h=repTabs()+sortBar('faults')+'<label>Месяц</label>'+monthSel('fm',m,false)+`<div class="mut" style="margin:0 0 10px">Проверок с неисправностями: ${a.length}, объектов: ${gr.length}</div>`;
 if(!gr.length)return h+'<div class="empty">За выбранный месяц неисправностей нет</div>';
 return h+gr.map(([id,cs])=>{const o=S.objs.find(x=>x.id===id)||{name:'(удалён)',addr:''};
-return `<div class="card" onclick="go('obj','${id}')"><b>${esc(oLab(o))}</b><div class="mut">${esc(o.addr)}</div>`+cs.map(c=>`<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px"><div class="row"><b>${sysS(c.system)}</b><span class="mut">${fmt(c.date)}</span></div><div class="mut">${techs(c)}</div><p style="margin:6px 0">${c.bad.map(esc).join('; ')}</p>${c.comment?`<p class="mut" style="margin:0 0 6px">${esc(c.comment)}</p>`:''}${c.life_exceeded?lifeB:''}</div>`).join('')+'</div>'}).join('')}
+return `<div class="card" onclick="go('obj','${id}')"><b>${esc(oLab(o))}</b><div class="mut">${esc(o.addr)}</div>`+cs.map(c=>`<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px"><div class="row"><b>${sysS(c.system)}</b><span class="mut">${fmt(c.date)}</span></div><div class="mut">${techs(c)}</div>${c.unplanned?`<div style="margin:4px 0">${unpB(c)}</div>`:''}<p style="margin:6px 0">${c.bad.map(esc).join('; ')}</p>${c.comment?`<p class="mut" style="margin:0 0 6px">${esc(c.comment)}</p>`:''}${c.life_exceeded?lifeB:''}</div>`).join('')+'</div>'}).join('')}
 function vActs(){const m=v.am===undefined?today().slice(0,7):v.am;
 const inM=c=>!m||c.date.startsWith(m),un=S.checks.filter(c=>inM(c)&&!c.act_signed),gr=groupBy(un);
 let h=repTabs()+sortBar('acts')+'<label>Месяц</label>'+monthSel('am',m,true)+`<div class="mut" style="margin:0 0 10px">Акт не подписан: ${un.length} из ${S.checks.filter(inM).length} проверок, объектов: ${gr.length}</div>`;
@@ -244,9 +262,9 @@ return `<div class="card"><b>${esc(oLab(o))}</b><div class="mut">${esc(o.addr)}<
 function render(){
 if(!USER){$('#ttl').textContent='Вход';showErr('');$('#role').textContent='';setBell();document.querySelector('nav').style.display='none';$('#app').innerHTML=vLogin();return}
 document.querySelector('nav').style.display='';
-const T={list:['Объекты',vList],journal:['Журнал проверок',vJournal],form:[v.id?'Изменить объект':'Новый объект',vForm],obj:['Объект',vObj],check:['Проверка',vCheck],reqs:['Заявки',vReqs],reqform:['Новая заявка',vReqForm],notes:['Уведомления',vNotes],cleanup:['Очистка журнала',vCleanup],table:['Сводка проверок',vTable],import:['Загрузка из Excel',vImport],sync:['Отправка данных',vSync],faults:['Неисправности за месяц',vFaults],acts:['Акты по проверкам',vActs],sinfo:['Данные системы',vSinfo]}[v.t];
+const T={list:['Объекты',vList],journal:['Журнал проверок',vJournal],form:[v.id?'Изменить объект':'Новый объект',vForm],obj:['Объект',vObj],check:['Проверка',vCheck],reqs:['Заявки',vReqs],reqform:['Новая заявка',vReqForm],notes:['Уведомления',vNotes],cleanup:['Очистка журнала',vCleanup],contact:['Контакт объекта',vContact],table:['Сводка проверок',vTable],import:['Загрузка из Excel',vImport],sync:['Отправка данных',vSync],faults:['Неисправности за месяц',vFaults],acts:['Акты по проверкам',vActs],sinfo:['Данные системы',vSinfo]}[v.t];
 $('#ttl').textContent=T[0];$('#role').textContent=roleText();setBell();reqBadge();$('#app').innerHTML=T[1]();if(v.t==='obj')thumbs();
-document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===v.t||['obj','check','sinfo','form','import'].includes(v.t)&&b.dataset.t==='list'||['faults','acts'].includes(v.t)&&b.dataset.t==='table'||v.t==='reqform'&&b.dataset.t==='reqs'));
+document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===v.t||['obj','check','sinfo','form','import','contact'].includes(v.t)&&b.dataset.t==='list'||['faults','acts'].includes(v.t)&&b.dataset.t==='table'||v.t==='reqform'&&b.dataset.t==='reqs'));
 const q=$('#q');if(q)q.oninput=e=>{v.q=e.target.value;$('#lst').innerHTML=listHtml()}}
 function roleText(){let t=USER?(ADMIN?'Администратор':'Техник'):'';if(USER&&!ONLINE)t+=' · нет сети';if(OB.length)t+=' · не отправлено '+OB.length;return t}
 function refresh(){if(!USER)return;$('#role').textContent=roleText();setBell();reqBadge();if(v.t==='list'){$('#lst').innerHTML=listHtml()}else if(['journal','obj','faults','acts','table','sync','reqs','notes'].includes(v.t))render()}
@@ -259,7 +277,7 @@ const tx=(s,m,f)=>open().then(d=>new Promise((res,rej)=>{const t=d.transaction(s
 return{get:k=>tx('kv','readonly',o=>o.get(k)),set:(k,x)=>tx('kv','readwrite',o=>o.put(x,k)),all:()=>tx('outbox','readonly',o=>o.getAll()),add:x=>tx('outbox','readwrite',o=>o.add(x)),put:x=>tx('outbox','readwrite',o=>o.put(x)),del:k=>tx('outbox','readwrite',o=>o.delete(k))}})();
 let BASE={objs:[],checks:[],photos:[],sinfo:[],reqs:[],notes:[]},OB=[],ONLINE=true,flushing=false;
 function mergeView(){
-const checks=BASE.checks.map(c=>Object.assign({},c)),photos=BASE.photos.slice(),sinfo=BASE.sinfo.map(x=>Object.assign({},x)),reqs=BASE.reqs.map(r=>Object.assign({},r));
+const objs=BASE.objs.map(o=>Object.assign({},o,{name:stripCust(o.name,o.customer)})),checks=BASE.checks.map(c=>Object.assign({},c)),photos=BASE.photos.slice(),sinfo=BASE.sinfo.map(x=>Object.assign({},x)),reqs=BASE.reqs.map(r=>Object.assign({},r));
 const cid=new Set(checks.map(c=>c.id)),pid=new Set(photos.map(p=>p.id));
 const addP=(p,at)=>{if(!pid.has(p.ph.id))photos.push(Object.assign({},p.ph,{_pending:1,created_at:at}))};
 for(const it of OB){
@@ -267,9 +285,10 @@ if(it.type==='check'){if(!cid.has(it.id))checks.push(Object.assign({},it.row,{id
 else if(it.type==='photo')addP(it,it.at);
 else if(it.type==='act'){const c=checks.find(x=>x.id===it.id);if(c)c.act_signed=it.val}
 else if(it.type==='reqnew'){if(!reqs.some(x=>x.id===it.id))reqs.push(Object.assign({status:'open',created_at:it.at,object_id:null,system:null,to_role:'tech'},it.row,{id:it.id,_pending:1}))}
+else if(it.type==='contact'){const o=objs.find(x=>x.id===it.oid);if(o){o.contact=it.contact;o.phone=it.phone}}
 else if(it.type==='reqdone'){const r=reqs.find(x=>x.id===it.id);if(r&&r.status==='open'){r.status='done';r.done_at=it.at;r.done_by_name=it.tname;r.done_comment=it.cmt;r._pending=1}}
 else if(it.type==='sinfo'){const i=sinfo.findIndex(x=>x.object_id===it.row.object_id&&x.system===it.row.system);if(i>=0)sinfo[i]=Object.assign({},sinfo[i],it.row);else sinfo.push(Object.assign({},it.row))}}
-S.objs=BASE.objs;S.checks=checks;S.photos=photos;S.sinfo=sinfo;S.reqs=reqs;
+S.objs=objs;S.checks=checks;S.photos=photos;S.sinfo=sinfo;S.reqs=reqs;
 const live=new Set(reqs.map(r=>r.id)),fin=new Set(reqs.filter(r=>r.status==='done').map(r=>r.id));
 S.notes=BASE.notes.filter(n=>!((n.kind==='request'||n.kind==='request_admin')&&n.ref_id&&(fin.has(n.ref_id)||(reqs.length&&!live.has(n.ref_id)))))}
 async function enqueue(it){it.at=new Date().toISOString();const k=await IDB.add(it);it.seq=k;OB.push(it);mergeView();refresh();flush()}
@@ -292,6 +311,7 @@ const r=await sb.from('photos').insert(p.ph);if(r.error&&r.error.code!=='23505')
 async function runOp(it){try{
 if(it.type==='check'){const r=await sb.from('checks').insert(Object.assign({id:it.id},it.row));if(r.error&&r.error.code!=='23505')return errR(r.error);
 for(const p of it.photos||[]){if(p.done)continue;const e=await upPhoto(p);if(e)return e;p.done=true;await IDB.put(it)}return{ok:1}}
+if(it.type==='contact'){const r=await sb.rpc('set_contact',{p_id:it.oid,p_contact:it.contact,p_phone:it.phone});return r.error?errR(r.error):{ok:1}}
 if(it.type==='reqnew'){const r=await sb.from('requests').insert(Object.assign({id:it.id},it.row));if(r.error&&r.error.code!=='23505')return errR(r.error);return{ok:1}}
 if(it.type==='reqdone'){const r=await sb.rpc('complete_request',{rid:it.id,tname:it.tname,cmt:it.cmt,at:it.at});return r.error?errR(r.error):{ok:1}}
 if(it.type==='photo'){const e=await upPhoto(it);return e||{ok:1}}
@@ -341,6 +361,7 @@ else if(it.type==='photo')t='Фото к проверке: '+o(it.ph.object_id);
 else if(it.type==='act')t='Отметка об акте';
 else if(it.type==='reqdone')t='Заявка выполнена';
 else if(it.type==='reqnew')t='Новая заявка';
+else if(it.type==='contact')t='Контакт объекта: '+o(it.oid);
 else t='Данные системы: '+o(it.row.object_id)+', '+sysS(it.row.system);
 return `<div class="card"><div>${t}</div>`+(it.err?`<div class="mut" style="color:var(--bad)">Ошибка: ${esc(it.err)}</div><button class="btn s" style="margin:8px 0 0;padding:9px" onclick="retryOb(${it.seq})">Повторить</button><button class="btn d" style="margin:8px 0 0;padding:9px" onclick="delOb(${it.seq})">Удалить из очереди</button>`:'<div class="mut">Ожидает отправки</div>')+'</div>'}
 async function retryOb(seq){const it=OB.find(x=>x.seq===seq);if(it){delete it.err;await IDB.put(it);flush()}}
@@ -348,7 +369,7 @@ async function delOb(seq){if(!confirm('Удалить запись из очер
 function vSync(){return `<button class="back" onclick="go('list')">‹ Назад</button><div class="mut" style="margin:0 0 10px">${ONLINE?'Связь с базой есть.':'Нет связи: записи хранятся на телефоне и отправятся, когда появится интернет.'} Не удаляйте приложение и не очищайте его данные, пока записи не отправлены.</div>${OB.length?OB.map(descOb).join(''):'<div class="empty">Всё отправлено</div>'}<button class="btn" onclick="flush()">Отправить сейчас</button><button class="btn s" onclick="askLogout()">Выйти из аккаунта</button>`}
 function vTable(){const m=v.tm===undefined?today().slice(0,7):v.tm,sf=v.ts||'',only=!!v.to,rows=[];
 S.objs.forEach(o=>Object.keys(SYS).forEach(k=>{if(!(o.systems&&o.systems[k])||(sf&&sf!==k))return;
-const cs=S.checks.filter(c=>c.oid===o.id&&c.system===k).sort((a,b)=>b.date.localeCompare(a.date)),inM=cs.find(c=>c.date.startsWith(m)),last=inM||cs[0];
+const cs=S.checks.filter(c=>c.oid===o.id&&c.system===k&&!c.unplanned).sort((a,b)=>b.date.localeCompare(a.date)),inM=cs.find(c=>c.date.startsWith(m)),last=inM||cs[0];
 rows.push({o,k,last,done:!!inM})}));
 rows.sort(tableCmp);
 const todo=rows.filter(r=>!r.done),shown=only?todo:rows;
@@ -356,7 +377,7 @@ let h=repTabs()+sortBar('table')+'<label>Месяц</label>'+monthSel('tm',m,fal
 `<label class="chk"><input type="checkbox" ${only?'checked':''} onchange="v.to=this.checked;render()">Только не проверенные</label>`+
 `<div class="mut" style="margin:0 0 8px">Не проверено в этом месяце: ${todo.length} из ${rows.length} (жёлтым)</div>`;
 if(!shown.length)return h+'<div class="empty">Нет объектов для показа</div>';
-return h+`<div style="overflow-x:auto"><table class="tb"><tr><th>Объект</th><th>Система</th><th>Дата проверки</th></tr>${shown.map((r,ix)=>`<tr class="${r.done?'':'y'}" onclick="v.sys='${r.k}';go('obj','${r.o.id}')"><td>${(sortOf('table')==='name'&&ix>0&&shown[ix-1].o.id===r.o.id)?'':esc(oLab(r.o))}</td><td>${sysS(r.k)}</td><td>${r.done?fmt(r.last.date):`<span class="mut">${r.last?fmt(r.last.date)+' (ранее)':'не проверялся'}</span>`}</td></tr>`).join('')}</table></div>`}
+return h+`<div style="overflow-x:auto"><table class="tb"><tr><th>Объект</th><th>Система</th><th>Дата проверки</th></tr>${shown.map((r,ix)=>`<tr class="${r.done?'':'y'}" onclick="v.sys='${r.k}';go('obj','${r.o.id}')"><td>${esc(oLab(r.o))}</td><td>${sysS(r.k)}</td><td>${r.done?fmt(r.last.date):`<span class="mut">${r.last?fmt(r.last.date)+' (ранее)':'не проверялся'}</span>`}</td></tr>`).join('')}</table></div>`}
 function impBuild(rows){const H=(rows[0]||[]).map(x=>String(x).trim().toLowerCase()),ix=k=>H.findIndex(h=>h.includes(k));
 let nm=ix('назван');if(nm<0)nm=ix('объект');
 const c={cu:ix('заказчик'),ad:ix('адрес'),nm,co:ix('контакт'),ph:ix('тел')};
@@ -432,6 +453,7 @@ function sortBar(t){const m=sortOf(t),old=(t==='list'||t==='table');
 return `<div class="tabs" style="margin-bottom:6px"><span class="mut" style="align-self:center;flex:none">Порядок:</span><button class="${m==='name'?'on':''}" onclick="setSort('${t}','name')">По наименованию</button><button class="${m==='date'?'on':''}" onclick="setSort('${t}','date')">По дате</button></div>`+(m==='date'?`<div class="mut" style="margin:0 0 8px;font-size:13px">${old?'Сверху те, что дольше всего не проверялись':'Сверху новые'}</div>`:'')}
 const tableCmp=(a,b)=>{if(sortOf('table')==='date'){const da=a.last?a.last.date:'',db=b.last?b.last.date:'';return da.localeCompare(db)||oLab(a.o).localeCompare(oLab(b.o))}return oLab(a.o).localeCompare(oLab(b.o))||Object.keys(SYS).indexOf(a.k)-Object.keys(SYS).indexOf(b.k)};
 const OTHER='Прочая неисправность';
+const unpB=c=>c.unplanned?'<span class="b warn">Внеплановые работы по ТО</span> '+(c.fixed===true?'<span class="b ok">неисправность устранена</span> ':c.fixed===false?'<span class="b bad">неисправность не устранена</span> ':''):'';
 function openFault(oid,k){const c=S.checks.filter(x=>x.oid===oid&&x.system===k).sort((a,b)=>b.date.localeCompare(a.date))[0];return c&&c.bad.length?c:null}
 function openFaultHtml(o){const c=openFault(o.id,v.sys);return c?`<div class="card" style="border-color:var(--warn)"><b style="color:var(--warn)">Не закрыта неисправность</b><div class="mut">Проверка ${fmt(c.date)}: ${c.bad.map(esc).join('; ')}</div>${c.comment?`<div class="mut">${esc(c.comment)}</div>`:''}</div>`:''}
 function reqCard(r){const o=r.object_id?(S.objs.find(x=>x.id===r.object_id)||{name:'(удалён)',addr:''}):null,done=r.status==='done',toAdm=r.to_role==='admin',canDo=toAdm?ADMIN:true;
@@ -582,6 +604,14 @@ if(!confirm('Удалить за период «'+what+'»: проверок '+n
 if((prompt('Для подтверждения введите слово УДАЛИТЬ')||'').trim().toUpperCase()!=='УДАЛИТЬ'){alert('Удаление отменено');return}
 try{toast('Удаляю, подождите…');await purge(m.cs.map(c=>c.id),m.ph,o.mode==='photos'?'photos':'all');await load();alert('Готово. Удалено проверок: '+nC+', фото: '+m.ph.length);go('journal')}
 catch(e){alert('Удаление прервано: '+(e.message||e)+'. Часть данных могла быть удалена, обновите список.');await load()}}
+function vContact(){const o=S.objs.find(x=>x.id===v.id);if(!o)return '<div class="empty">Объект не найден</div>';
+return `<button class="back" onclick="go('obj','${o.id}')">‹ ${esc(oLab(o))}</button>
+<div class="mut" style="margin:0 0 8px">Контактное лицо и телефон на объекте</div>
+<label>Контактное лицо</label><input id="ct_name" value="${esc(o.contact)}" placeholder="Фамилия И. О., должность">
+<label>Телефон</label><input id="ct_phone" type="tel" inputmode="tel" value="${esc(o.phone)}" placeholder="+7 900 000-00-00">
+<button class="btn" onclick="saveContact('${o.id}')">Сохранить</button>`}
+async function saveContact(oid){const c=$('#ct_name').value.trim(),ph=$('#ct_phone').value.trim();
+await enqueue({type:'contact',oid,contact:c,phone:ph});go('obj',oid)}
 function vLogin(){return `<label>Email</label><input id="l_e" type="email" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"><label>Пароль</label><input id="l_p" type="password" autocomplete="current-password"><button class="btn" onclick="login()">Войти</button><p class="mut">${esc(STATUS)}</p>`}
 async function login(){if(SUPABASE_URL.includes('ВАШ')||SUPABASE_KEY.includes('ВАШ')){STATUS='В приложении не вписаны адрес и ключ Supabase';render();return}
 const r=await sb.auth.signInWithPassword({email:$('#l_e').value.trim(),password:$('#l_p').value});
