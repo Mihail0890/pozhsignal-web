@@ -64,7 +64,7 @@ nav button.on{color:var(--red);font-weight:600}
 <script>
 const SUPABASE_URL='https://maalpiizueoavabugkok.supabase.co',SUPABASE_KEY='sb_publishable_b3huP5hMBmDzn-8vlCmi0A_XnzCIyPL';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-let S={objs:[],checks:[],photos:[],sinfo:[],reqs:[],notes:[],tech:''},DB=null,ADMIN=false,USER=null,STATUS='';
+let S={objs:[],checks:[],photos:[],sinfo:[],reqs:[],notes:[],dacts:[],tech:''},DB=null,ADMIN=false,USER=null,STATUS='';
 try{S.tech=localStorage.getItem('pozh-tech')||''}catch(e){}
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -82,7 +82,7 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 let v={t:'list',id:null,q:'',sys:'fire'};
 const histAll=(id,k)=>S.checks.filter(c=>c.oid===id&&c.system===(k||v.sys)).sort((a,b)=>b.date.localeCompare(a.date));
 const hist=(id,k)=>S.checks.filter(c=>c.oid===id&&c.system===(k||v.sys)&&!c.unplanned).sort((a,b)=>b.date.localeCompare(a.date));
-function dueDate(o){const l=hist(o.id)[0];if(!l)return null;const d=new Date(l.date);d.setMonth(d.getMonth()+Number((o.systems||{})[v.sys]||3));return d}
+function dueDate(o){const l=hist(o.id)[0];if(!l)return null;const d=new Date(String(l.date).slice(0,10)+'T12:00:00'),day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+Number((o.systems||{})[v.sys]||3));d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()));return d}
 function st(o){const d=dueDate(o);if(!d)return['new','Не проверен',-1e9];const n=Math.ceil((d-new Date())/864e5);
 if(n<0)return['bad','Просрочено '+(-n)+' дн.',n];if(n<=14)return['warn','Через '+n+' дн.',n];return['ok','До '+fmt(d),n]}
 function go(t,id){v.t=t;v.id=id||null;if(t==='notes'){v.prevSeen=getSeen();markSeen()}if(t==='reqform')REQ_OBJ='';window.scrollTo(0,0);render()}
@@ -174,10 +174,11 @@ ${o.phone?`<p>Тел.: <a href="tel:${esc(o.phone.replace(/[^0-9+]/g,''))}" styl
 ${o.notes?`<p class="mut">${esc(o.notes)}</p>`:''}</div>
 ${openFaultHtml(o)}${sinfoHtml(o)}
 <button class="btn" onclick="go('check','${o.id}')">Провести проверку: ${SYS[v.sys].s}</button>
+<button class="btn s" onclick="dNew('${o.id}')">Составить дефектную ведомость</button>
 ${ADMIN?`<button class="btn s" onclick="go('form','${o.id}')">Изменить объект</button><button class="btn s" onclick="newFor('${o.id}')">Добавить ещё объект этого заказчика</button>`:''}
 ${photosHtml(o)}
-<h3>История проверок</h3>
-${h.length?h.map(c=>`<div class="card"><div class="row"><b>${fmt(c.date)}</b><span class="b ${c.bad.length?'bad':'ok'}">${c.bad.length?'Замечания':'Исправна'}</span></div><div class="mut">${techs(c)}</div><div style="margin:4px 0">${unpB(c)}${actBadge(c)}${c.life_exceeded?' '+lifeB:''}${c._pending?' <span class="b new">Не отправлено</span>':''}</div>${c.bad.length?`<p>${c.bad.map(esc).join('; ')}</p>`:''}${c.comment?`<p class="mut">${esc(c.comment)}</p>`:''}${chkPhotos(c)}${actBtn(c)}${delBtn(c)}</div>`).join(''):'<div class="empty">Проверок ещё не было</div>'}
+${dactsHtml(o.id)}<h3>История проверок</h3>
+${h.length?h.map(c=>`<div class="card"><div class="row"><b>${fmt(c.date)}</b><span class="b ${c.bad.length?'bad':'ok'}">${c.bad.length?'Замечания':'Исправна'}</span></div><div class="mut">${techs(c)}</div><div style="margin:4px 0">${unpB(c)}${actBadge(c)}${c.life_exceeded?' '+lifeB:''}${c._pending?' <span class="b new">Не отправлено</span>':''}</div>${c.bad.length?`<p>${c.bad.map(esc).join('; ')}</p>`:''}${c.comment?`<p class="mut">${esc(c.comment)}</p>`:''}${chkPhotos(c)}${actBtn(c)}<button class="btn s" style="margin:8px 0 0;padding:9px" onclick="dNew('${o.id}','${c.id}')">Составить дефектную ведомость</button>${delBtn(c)}</div>`).join(''):'<div class="empty">Проверок ещё не было</div>'}
 ${ADMIN?`<button class="btn d" onclick="delObj('${o.id}')">Удалить объект</button>`:''}`}
 async function delObj(id){if(!DB||!ADMIN||!needOnline()||!confirm('Удалить объект и всю историю проверок?'))return;
 const ps=S.photos.filter(p=>p.object_id===id).flatMap(p=>[p.path,tp(p.path)]);if(ps.length)await sb.storage.from('journal').remove(ps);
@@ -209,6 +210,7 @@ ${yearsIn(sinfo(o.id,v.sys))>10?`<div class="card" style="border-color:var(--war
 <textarea id="c_com" rows="3"></textarea>
 <label>Акт</label><select id="c_act"><option value="0">Акт не подписан</option><option value="1">Акт подписан</option></select>
 <label>Фото страницы журнала (можно несколько)</label><input type="file" id="c_ph" accept="image/*" multiple>
+<label class="chk"><input type="checkbox" id="c_dact">Составить дефектную ведомость после записи</label>
 <button class="btn" onclick="saveCheck('${o.id}')">Записать проверку</button>`}
 let saving=false;
 async function saveCheck(oid){if(saving)return;
@@ -222,12 +224,12 @@ if(unp&&fx2&&!bad.length){alert('Неисправность не устране�
 const com=$('#c_com').value.trim();
 if(bad.includes(OTHER)&&!com){alert('Снята отметка «Отсутствует прочая неисправность». Опишите в комментарии, что неисправно.');$('#c_com').focus();return}
 S.tech=tech;try{localStorage.setItem('pozh-tech',tech)}catch(e){}
-const date=$('#c_date').value||today(),fs=[...$('#c_ph').files];
+const dc=$('#c_dact').checked,date=$('#c_date').value||today(),fs=[...$('#c_ph').files];
 const si=sinfo(oid,v.sys),lifeEx=!!(si.year_in&&yearsIn(si,date)>10);
 saving=true;try{const id=uuid(),m=date.slice(0,7),photos=[];let bp=0;
 for(const f of fs){try{photos.push(await mkPhoto(oid,id,m,f))}catch(e){bp++}}
 await enqueue({type:'check',id,row:{object_id:oid,system:v.sys,date,tech,tech2,bad,comment:com,act_signed:$('#c_act').value==='1',life_exceeded:lifeEx,unplanned:unp,fixed:unp?(fx1?true:false):null},photos});
-go('obj',oid);if(bp)alert('Проверка сохранена, но не удалось обработать фото: '+bp)}finally{saving=false}}
+if(dc)dNew(oid,id,v.sys);else go('obj',oid);if(bp)alert('Проверка сохранена, но не удалось обработать фото: '+bp)}finally{saving=false}}
 
 function vJournal(){const m=sortOf('journal');
 const a=S.checks.filter(c=>c.system===v.sys&&(!v.m||c.date.startsWith(v.m))).sort((x,y)=>m==='name'?objName(x.oid).localeCompare(objName(y.oid))||y.date.localeCompare(x.date):y.date.localeCompare(x.date));
@@ -239,7 +241,7 @@ return tb+a.map(c=>{const o=S.objs.find(x=>x.id===c.oid)||{name:'(удалён)'
 function exportCsv(){
 const q=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
 const rows=[['Дата','Система','Объект','Адрес','Техник 1','Техник 2','Вид работ','Результат','Замечания','Акт','Срок службы превышен','Комментарий']];
-S.checks.filter(c=>!v.m||c.date.startsWith(v.m)).sort((x,y)=>x.date.localeCompare(y.date)).forEach(c=>{const o=S.objs.find(x=>x.id===c.oid)||{name:'',addr:''};rows.push([fmt(c.date),SYS[c.system]?SYS[c.system].n:c.system,oLab(o),o.addr,c.tech,c.tech2||'',c.unplanned?('Внеплановый выезд'+(c.fixed===true?' (устранена)':c.fixed===false?' (не устранена)':'')):'Плановое ТО',c.bad.length?'Замечания':'Исправна',c.bad.join('; '),c.act_signed?'подписан':'не подписан',c.life_exceeded?'да':'',c.comment])});
+S.checks.filter(c=>!v.m||c.date.startsWith(v.m)).sort((x,y)=>x.date.localeCompare(y.date)).forEach(c=>{const o=S.objs.find(x=>x.id===c.oid)||{name:'',addr:''};rows.push([fmt(c.date),SYS[c.system]?SYS[c.system].n:c.system,oLab(o),o.addr,c.tech,c.tech2||'',c.unplanned?('Внеплановый выезд'+(c.request_id?' по заявке':'')+(c.fixed===true?' (устранена)':c.fixed===false?' (не устранена)':'')):'Плановое ТО',c.bad.length?'Замечания':'Исправна',c.bad.join('; '),c.act_signed?'подписан':'не подписан',c.life_exceeded?'да':'',c.comment])});
 const t=rows.map(r=>r.map(q).join(';')).join('\n');
 navigator.clipboard.writeText(t).then(()=>alert('Скопировано. Вставьте в Excel или заметки.')).catch(()=>prompt('Скопируйте текст вручную:',t))}
 const objName=id=>{const o=S.objs.find(o=>o.id===id);return o?oLab(o):'(удалён)'};
@@ -262,12 +264,12 @@ return `<div class="card"><b>${esc(oLab(o))}</b><div class="mut">${esc(o.addr)}<
 function render(){
 if(!USER){$('#ttl').textContent='Вход';showErr('');$('#role').textContent='';setBell();document.querySelector('nav').style.display='none';$('#app').innerHTML=vLogin();return}
 document.querySelector('nav').style.display='';
-const T={list:['Объекты',vList],journal:['Журнал проверок',vJournal],form:[v.id?'Изменить объект':'Новый объект',vForm],obj:['Объект',vObj],check:['Проверка',vCheck],reqs:['Заявки',vReqs],reqform:['Новая заявка',vReqForm],notes:['Уведомления',vNotes],cleanup:['Очистка журнала',vCleanup],contact:['Контакт объекта',vContact],table:['Сводка проверок',vTable],import:['Загрузка из Excel',vImport],sync:['Отправка данных',vSync],faults:['Неисправности за месяц',vFaults],acts:['Акты по проверкам',vActs],sinfo:['Данные системы',vSinfo]}[v.t];
+const T={list:['Объекты',vList],journal:['Журнал проверок',vJournal],form:[v.id?'Изменить объект':'Новый объект',vForm],obj:['Объект',vObj],check:['Проверка',vCheck],reqs:['Заявки',vReqs],reqform:['Новая заявка',vReqForm],notes:['Уведомления',vNotes],cleanup:['Очистка журнала',vCleanup],contact:['Контакт объекта',vContact],table:['Сводка проверок',vTable],import:['Загрузка из Excel',vImport],sync:['Отправка данных',vSync],faults:['Неисправности за месяц',vFaults],acts:['Акты по проверкам',vActs],sinfo:['Данные системы',vSinfo],reqdone:['Выполнение заявки',vReqDone],dact:['Дефектная ведомость',vDact],dacts:['Дефектные ведомости',vDacts]}[v.t];
 $('#ttl').textContent=T[0];$('#role').textContent=roleText();setBell();reqBadge();$('#app').innerHTML=T[1]();if(v.t==='obj')thumbs();
-document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===v.t||['obj','check','sinfo','form','import','contact'].includes(v.t)&&b.dataset.t==='list'||['faults','acts'].includes(v.t)&&b.dataset.t==='table'||v.t==='reqform'&&b.dataset.t==='reqs'));
+document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===v.t||['obj','check','sinfo','form','import','contact','dact'].includes(v.t)&&b.dataset.t==='list'||['faults','acts','dacts'].includes(v.t)&&b.dataset.t==='table'||['reqform','reqdone'].includes(v.t)&&b.dataset.t==='reqs'));
 const q=$('#q');if(q)q.oninput=e=>{v.q=e.target.value;$('#lst').innerHTML=listHtml()}}
 function roleText(){let t=USER?(ADMIN?'Администратор':'Техник'):'';if(USER&&!ONLINE)t+=' · нет сети';if(OB.length)t+=' · не отправлено '+OB.length;return t}
-function refresh(){if(!USER)return;$('#role').textContent=roleText();setBell();reqBadge();if(v.t==='list'){$('#lst').innerHTML=listHtml()}else if(['journal','obj','faults','acts','table','sync','reqs','notes'].includes(v.t))render()}
+function refresh(){if(!USER)return;$('#role').textContent=roleText();setBell();reqBadge();if(v.t==='list'){$('#lst').innerHTML=listHtml()}else if(['journal','obj','faults','acts','dacts','table','sync','reqs','notes'].includes(v.t))render()}
 function showErr(m){const e=$('#err');if(!m){e.style.display='none';return}e.style.display='block';e.innerHTML='<b>Не удалось загрузить данные</b><div class="mut">'+esc(m)+'</div><button class="btn s" style="margin:8px 0 0" onclick="load()">Повторить</button>'}
 const uuid=()=>(window.crypto&&crypto.randomUUID)?crypto.randomUUID():'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&3|8)).toString(16)});
 const isNet=e=>{if(!e)return false;return /fetch|network|load failed|timeout|abort|AuthRetryableFetchError/i.test(String(e.message||e)+' '+(e.name||''))};
@@ -275,31 +277,35 @@ const errR=e=>isNet(e)?{net:1}:{err:String(e.message||e.code||e)};
 const IDB=(()=>{let db;const open=()=>db?Promise.resolve(db):new Promise((res,rej)=>{const r=indexedDB.open('pozh',1);r.onupgradeneeded=()=>{const d=r.result;d.createObjectStore('kv');d.createObjectStore('outbox',{keyPath:'seq',autoIncrement:true})};r.onsuccess=()=>{db=r.result;res(db)};r.onerror=()=>rej(r.error)});
 const tx=(s,m,f)=>open().then(d=>new Promise((res,rej)=>{const t=d.transaction(s,m),q=f(t.objectStore(s));t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error)}));
 return{get:k=>tx('kv','readonly',o=>o.get(k)),set:(k,x)=>tx('kv','readwrite',o=>o.put(x,k)),all:()=>tx('outbox','readonly',o=>o.getAll()),add:x=>tx('outbox','readwrite',o=>o.add(x)),put:x=>tx('outbox','readwrite',o=>o.put(x)),del:k=>tx('outbox','readwrite',o=>o.delete(k))}})();
-let BASE={objs:[],checks:[],photos:[],sinfo:[],reqs:[],notes:[]},OB=[],ONLINE=true,flushing=false;
+let BASE={objs:[],checks:[],photos:[],sinfo:[],reqs:[],notes:[],dacts:[]},OB=[],ONLINE=true,flushing=false;
 function mergeView(){
 const objs=BASE.objs.map(o=>Object.assign({},o,{name:stripCust(o.name,o.customer)})),checks=BASE.checks.map(c=>Object.assign({},c)),photos=BASE.photos.slice(),sinfo=BASE.sinfo.map(x=>Object.assign({},x)),reqs=BASE.reqs.map(r=>Object.assign({},r));
+const dacts=(BASE.dacts||[]).map(x=>Object.assign({},x));
 const cid=new Set(checks.map(c=>c.id)),pid=new Set(photos.map(p=>p.id));
 const addP=(p,at)=>{if(!pid.has(p.ph.id))photos.push(Object.assign({},p.ph,{_pending:1,created_at:at}))};
-for(const it of OB){
+const ops=[];for(const it of OB){if(it.type==='reqvisit'){ops.push(Object.assign({},it,{type:'check'}));if(!it.err)ops.push({type:'reqdone',id:it.rid,tname:it.tname,cmt:it.cmt,at:it.at})}else ops.push(it)}
+for(const it of ops){
 if(it.type==='check'){if(!cid.has(it.id))checks.push(Object.assign({},it.row,{id:it.id,oid:it.row.object_id,_pending:1}));(it.photos||[]).forEach(p=>addP(p,it.at))}
 else if(it.type==='photo')addP(it,it.at);
 else if(it.type==='act'){const c=checks.find(x=>x.id===it.id);if(c)c.act_signed=it.val}
 else if(it.type==='reqnew'){if(!reqs.some(x=>x.id===it.id))reqs.push(Object.assign({status:'open',created_at:it.at,object_id:null,system:null,to_role:'tech'},it.row,{id:it.id,_pending:1}))}
 else if(it.type==='contact'){const o=objs.find(x=>x.id===it.oid);if(o){o.contact=it.contact;o.phone=it.phone}}
 else if(it.type==='reqdone'){const r=reqs.find(x=>x.id===it.id);if(r&&r.status==='open'){r.status='done';r.done_at=it.at;r.done_by_name=it.tname;r.done_comment=it.cmt;r._pending=1}}
+else if(it.type==='dact'){const i=dacts.findIndex(x=>x.id===it.row.id);if(i>=0)dacts[i]=Object.assign({},dacts[i],it.row,{_pending:1});else dacts.push(Object.assign({created_at:it.at},it.row,{_pending:1}))}
 else if(it.type==='sinfo'){const i=sinfo.findIndex(x=>x.object_id===it.row.object_id&&x.system===it.row.system);if(i>=0)sinfo[i]=Object.assign({},sinfo[i],it.row);else sinfo.push(Object.assign({},it.row))}}
-S.objs=objs;S.checks=checks;S.photos=photos;S.sinfo=sinfo;S.reqs=reqs;
+S.objs=objs;S.checks=checks;S.photos=photos;S.sinfo=sinfo;S.reqs=reqs;S.dacts=dacts;
 const live=new Set(reqs.map(r=>r.id)),fin=new Set(reqs.filter(r=>r.status==='done').map(r=>r.id));
 S.notes=BASE.notes.filter(n=>!((n.kind==='request'||n.kind==='request_admin')&&n.ref_id&&(fin.has(n.ref_id)||(reqs.length&&!live.has(n.ref_id)))))}
-async function enqueue(it){it.at=new Date().toISOString();const k=await IDB.add(it);it.seq=k;OB.push(it);mergeView();refresh();flush()}
+async function enqueue(it){it.at=new Date().toISOString();it.uid=USER&&USER.id;const k=await IDB.add(it);it.seq=k;OB.push(it);mergeView();refresh();flush()}
 let notesReady=false;
+async function fetchAll(mk){const out=[];for(let f=0;;f+=1000){const r=await mk().range(f,f+999);if(r.error)return r;out.push(...r.data);if(r.data.length<1000)return{data:out,error:null}}}
 async function load(){if(!USER)return;
-try{const [o,c,ph,pr,si,rq,nt]=await Promise.all([sb.from('objects').select('*').order('name'),sb.from('checks').select('*'),sb.from('photos').select('*').order('created_at',{ascending:false}),sb.from('profiles').select('role').eq('id',USER.id).single(),sb.from('system_info').select('*'),sb.from('requests').select('*').order('created_at',{ascending:false}),sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(50)]);
+try{const [o,c,ph,pr,si,rq,nt,da]=await Promise.all([fetchAll(()=>sb.from('objects').select('*').order('name').order('id')),fetchAll(()=>sb.from('checks').select('*').order('date',{ascending:false}).order('id')),fetchAll(()=>sb.from('photos').select('*').order('created_at',{ascending:false}).order('id')),sb.from('profiles').select('role').eq('id',USER.id).single(),fetchAll(()=>sb.from('system_info').select('*').order('object_id').order('system')),fetchAll(()=>sb.from('requests').select('*').order('created_at',{ascending:false}).order('id')),sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(50),fetchAll(()=>sb.from('defect_acts').select('*').order('created_at',{ascending:false}).order('id'))]);
 const er=o.error||c.error||ph.error||si.error||rq.error||nt.error;
 if(er){if(isNet(er)){ONLINE=false;refresh();return}showErr(er.message||er.code||'неизвестная ошибка');refresh();return}
 ONLINE=true;const was=ADMIN;if(pr.data)ADMIN=pr.data.role==='admin';
 const known=new Set(BASE.notes.map(n=>n.id));
-BASE={objs:o.data,photos:ph.data,sinfo:si.data,reqs:rq.data,notes:nt.data,checks:c.data.map(r=>Object.assign({},r,{oid:r.object_id,system:r.system||'fire'}))};
+BASE={objs:o.data,photos:ph.data,sinfo:si.data,reqs:rq.data,notes:nt.data,dacts:(da&&!da.error)?da.data:(BASE.dacts||[]),checks:c.data.map(r=>Object.assign({},r,{oid:r.object_id,system:r.system||'fire'}))};
 try{await IDB.set('cache',Object.assign({},BASE,{admin:ADMIN,uid:USER.id}))}catch(e){}
 mergeView();showErr('');if(notesReady)announce(nt.data.filter(n=>!known.has(n.id)));notesReady=true;syncToken();if(was!==ADMIN)render();else refresh()
 }catch(e){ONLINE=false;refresh()}}
@@ -308,14 +314,17 @@ async function upPhoto(p){const st=sb.storage.from('journal');
 for(const [path,blob] of [[p.ph.path,p.blob],[tp(p.ph.path),p.thumb]]){const r=await st.upload(path,blob,{contentType:'image/jpeg'});
 if(r.error&&!/already exists|duplicate/i.test(r.error.message||'')&&String(r.error.statusCode)!=='409')return errR(r.error)}
 const r=await sb.from('photos').insert(p.ph);if(r.error&&r.error.code!=='23505')return errR(r.error);return null}
-async function runOp(it){try{
-if(it.type==='check'){const r=await sb.from('checks').insert(Object.assign({id:it.id},it.row));if(r.error&&r.error.code!=='23505')return errR(r.error);
+async function sendCheck(it){const r=await sb.from('checks').insert(Object.assign({id:it.id},it.row));if(r.error&&r.error.code!=='23505')return errR(r.error);
 for(const p of it.photos||[]){if(p.done)continue;const e=await upPhoto(p);if(e)return e;p.done=true;await IDB.put(it)}return{ok:1}}
+async function runOp(it){try{
+if(it.type==='check')return await sendCheck(it);
+if(it.type==='reqvisit'){const a=await sendCheck(it);if(!a.ok)return a;const r=await sb.rpc('complete_request',{rid:it.rid,tname:it.tname,cmt:it.cmt,at:it.at});return r.error?errR(r.error):{ok:1}}
 if(it.type==='contact'){const r=await sb.rpc('set_contact',{p_id:it.oid,p_contact:it.contact,p_phone:it.phone});return r.error?errR(r.error):{ok:1}}
 if(it.type==='reqnew'){const r=await sb.from('requests').insert(Object.assign({id:it.id},it.row));if(r.error&&r.error.code!=='23505')return errR(r.error);return{ok:1}}
 if(it.type==='reqdone'){const r=await sb.rpc('complete_request',{rid:it.id,tname:it.tname,cmt:it.cmt,at:it.at});return r.error?errR(r.error):{ok:1}}
 if(it.type==='photo'){const e=await upPhoto(it);return e||{ok:1}}
 if(it.type==='act'){const r=await sb.rpc('set_act',{cid:it.id,signed:it.val});return r.error?errR(r.error):{ok:1}}
+if(it.type==='dact'){const r=await sb.from('defect_acts').upsert(it.row,{onConflict:'id'});return r.error?errR(r.error):{ok:1}}
 if(it.type==='sinfo'){const r=await sb.from('system_info').upsert(it.row,{onConflict:'object_id,system'});return r.error?errR(r.error):{ok:1}}
 return{err:'неизвестная запись'}}catch(e){return errR(e)}}
 let again=false;
@@ -335,7 +344,7 @@ function pgrid(a){return `<div class="grid">${a.map(p=>`<img data-p="${esc(p.pat
 function chkPhotos(c){const a=S.photos.filter(p=>p.check_id===c.id);return (a.length?pgrid(a)+`<button class="btn s" style="margin:6px 0 0;padding:9px" onclick="savePhotos([${a.map(p=>`'${p.id}'`).join(',')}])">Сохранить фото на телефон (${a.length})</button>`:'')+`<input type="file" id="ph_${c.id}" accept="image/*" multiple hidden onchange="addToCheck('${c.id}',this)"><button class="btn s" style="margin:8px 0 0;padding:9px" onclick="$('#ph_${c.id}').click()">+ Фото к этой проверке</button>`}
 function photosHtml(o){const a=S.photos.filter(p=>p.object_id===o.id&&!p.check_id);return a.length?`<h3>Прежние фото без привязки к проверке</h3>${pgrid(a)}`:''}
 function localBlob(path,kind){const key=path+kind;if(LU[key])return LU[key];
-for(const it of OB){const ps=it.type==='check'?it.photos:(it.type==='photo'?[it]:[]);for(const p of ps||[]){if(p.ph.path===path){const b=kind==='thumb'?p.thumb:p.blob;if(b)return LU[key]=URL.createObjectURL(b)}}}return null}
+for(const it of OB){const ps=(it.type==='check'||it.type==='reqvisit')?it.photos:(it.type==='photo'?[it]:[]);for(const p of ps||[]){if(p.ph.path===path){const b=kind==='thumb'?p.thumb:p.blob;if(b)return LU[key]=URL.createObjectURL(b)}}}return null}
 async function signed(paths){const need=paths.filter(p=>!URLS[p]);if(need.length){try{const r=await sb.storage.from('journal').createSignedUrls(need,3600);(r.data||[]).forEach(x=>{if(x.signedUrl)URLS[x.path]=x.signedUrl})}catch(e){}}}
 async function thumbs(){const im=[...document.querySelectorAll('img[data-p]')];await signed(im.filter(i=>!localBlob(i.dataset.p,'thumb')).map(i=>tp(i.dataset.p)));
 im.forEach(i=>{const p=i.dataset.p,u=localBlob(p,'thumb')||URLS[tp(p)];if(u)i.src=u})}
@@ -357,10 +366,12 @@ function badgeClick(){if(!USER)return;if(OB.length)go('sync');else askLogout()}
 function askLogout(){if(!confirm('Выйти из аккаунта? Чтобы войти снова, нужен интернет.'))return;if(OB.length&&!confirm('Не отправлено записей: '+OB.length+'. Они останутся на телефоне и уйдут после следующего входа. Всё равно выйти?'))return;logout()}
 function descOb(it){const o=id=>esc(objName(id));let t;
 if(it.type==='check')t=`Проверка: ${o(it.row.object_id)}, ${sysS(it.row.system)}, ${fmt(it.row.date)}${it.photos&&it.photos.length?', фото: '+it.photos.length:''}`;
+else if(it.type==='reqvisit')t=`Выезд по заявке: ${o(it.row.object_id)}, ${sysS(it.row.system)}, ${fmt(it.row.date)}${it.photos&&it.photos.length?', фото: '+it.photos.length:''}`;
 else if(it.type==='photo')t='Фото к проверке: '+o(it.ph.object_id);
 else if(it.type==='act')t='Отметка об акте';
 else if(it.type==='reqdone')t='Заявка выполнена';
 else if(it.type==='reqnew')t='Новая заявка';
+else if(it.type==='dact')t='Дефектная ведомость: '+o(it.row.object_id);
 else if(it.type==='contact')t='Контакт объекта: '+o(it.oid);
 else t='Данные системы: '+o(it.row.object_id)+', '+sysS(it.row.system);
 return `<div class="card"><div>${t}</div>`+(it.err?`<div class="mut" style="color:var(--bad)">Ошибка: ${esc(it.err)}</div><button class="btn s" style="margin:8px 0 0;padding:9px" onclick="retryOb(${it.seq})">Повторить</button><button class="btn d" style="margin:8px 0 0;padding:9px" onclick="delOb(${it.seq})">Удалить из очереди</button>`:'<div class="mut">Ожидает отправки</div>')+'</div>'}
@@ -420,7 +431,7 @@ const mine=n=>n.target_user?n.target_user===(USER&&USER.id):(ADMIN?n.audience===
 const unread=()=>{const s=new Date(getSeen());return S.notes.filter(n=>mine(n)&&new Date(n.created_at)>s).length};
 function setBell(){const b=$('#bell');if(!b)return;if(!USER){b.style.display='none';return}b.style.display='';const n=unread();b.textContent='\u{1F514}'+(n?' '+n:'');b.className='bell'+(n?' has':'')}
 function reqBadge(){const n=document.querySelector('nav [data-t=reqs]');if(n){const c=S.reqs.filter(r=>r.status==='open').length;n.textContent='Заявки'+(c?' ('+c+')':'')}}
-function repTabs(){return '<div class="tabs">'+[['table','Сводка'],['faults','Неисправности'],['acts','Акты']].map(([t,n])=>`<button class="${v.t===t?'on':''}" onclick="go('${t}')">${n}</button>`).join('')+'</div>'}
+function repTabs(){return '<div class="tabs">'+[['table','Сводка'],['faults','Неисправности'],['acts','Акты'],['dacts','Ведомости']].map(([t,n])=>`<button class="${v.t===t?'on':''}" onclick="go('${t}')">${n}</button>`).join('')+'</div>'}
 function noteText(n){const o=n.object_id?S.objs.find(x=>x.id===n.object_id):null,nm=o?oLab(o):(n.object_id?'объект':'прочая заявка');
 if(n.kind==='fault')return{t:'Неисправность: '+nm+(n.system?' ('+sysS(n.system)+')':''),b:n.body||''};
 if(n.kind==='request')return{t:'Новая заявка: '+nm,b:n.body||''};
@@ -439,7 +450,7 @@ function toast(text,fn){const t=$('#toast');t.textContent=text;t.style.display='
 function announce(a){const m=a.filter(mine);if(!m.length)return;const n=m[0],t=noteText(n);toast(t.t+(t.b?': '+t.b:''),()=>openNote(n.id));try{navigator.vibrate&&navigator.vibrate(200)}catch(e){}}
 let pollN=0;
 async function pollLite(){if(!USER||!ONLINE||document.hidden)return;
-try{const [nt,ck,rq]=await Promise.all([sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(50),sb.from('checks').select('id,created_at').order('created_at',{ascending:false}).limit(1),sb.from('requests').select('id,status')]);
+try{const [nt,ck,rq]=await Promise.all([sb.from('notifications').select('*').order('created_at',{ascending:false}).limit(50),sb.from('checks').select('id,created_at').order('created_at',{ascending:false}).limit(1),fetchAll(()=>sb.from('requests').select('id,status').order('id'))]);
 if(nt.error||ck.error||rq.error){if(isNet(nt.error||ck.error||rq.error))ONLINE=false;return}
 const known=new Set(BASE.notes.map(n=>n.id)),fresh=nt.data.filter(n=>!known.has(n.id));
 const lastB=BASE.checks.reduce((m,c)=>(!m||new Date(c.created_at)>new Date(m.created_at))?c:m,null),newC=ck.data[0]&&(!lastB||ck.data[0].id!==lastB.id);
@@ -453,8 +464,8 @@ function sortBar(t){const m=sortOf(t),old=(t==='list'||t==='table');
 return `<div class="tabs" style="margin-bottom:6px"><span class="mut" style="align-self:center;flex:none">Порядок:</span><button class="${m==='name'?'on':''}" onclick="setSort('${t}','name')">По наименованию</button><button class="${m==='date'?'on':''}" onclick="setSort('${t}','date')">По дате</button></div>`+(m==='date'?`<div class="mut" style="margin:0 0 8px;font-size:13px">${old?'Сверху те, что дольше всего не проверялись':'Сверху новые'}</div>`:'')}
 const tableCmp=(a,b)=>{if(sortOf('table')==='date'){const da=a.last?a.last.date:'',db=b.last?b.last.date:'';return da.localeCompare(db)||oLab(a.o).localeCompare(oLab(b.o))}return oLab(a.o).localeCompare(oLab(b.o))||Object.keys(SYS).indexOf(a.k)-Object.keys(SYS).indexOf(b.k)};
 const OTHER='Прочая неисправность';
-const unpB=c=>c.unplanned?'<span class="b warn">Внеплановые работы по ТО</span> '+(c.fixed===true?'<span class="b ok">неисправность устранена</span> ':c.fixed===false?'<span class="b bad">неисправность не устранена</span> ':''):'';
-function openFault(oid,k){const c=S.checks.filter(x=>x.oid===oid&&x.system===k).sort((a,b)=>b.date.localeCompare(a.date))[0];return c&&c.bad.length?c:null}
+const unpB=c=>c.unplanned?'<span class="b warn">Внеплановые работы по ТО</span> '+(c.request_id?'<span class="b new">По заявке</span> ':'')+(c.fixed===true?'<span class="b ok">неисправность устранена</span> ':c.fixed===false?'<span class="b bad">неисправность не устранена</span> ':''):'';
+function openFault(oid,k){const c=S.checks.filter(x=>x.oid===oid&&x.system===k&&!(x.unplanned&&x.fixed==null)).sort((a,b)=>b.date.localeCompare(a.date))[0];return c&&c.bad.length?c:null}
 function openFaultHtml(o){const c=openFault(o.id,v.sys);return c?`<div class="card" style="border-color:var(--warn)"><b style="color:var(--warn)">Не закрыта неисправность</b><div class="mut">Проверка ${fmt(c.date)}: ${c.bad.map(esc).join('; ')}</div>${c.comment?`<div class="mut">${esc(c.comment)}</div>`:''}</div>`:''}
 function reqCard(r){const o=r.object_id?(S.objs.find(x=>x.id===r.object_id)||{name:'(удалён)',addr:''}):null,done=r.status==='done',toAdm=r.to_role==='admin',canDo=toAdm?ADMIN:true;
 return `<div class="card" style="${done?'background:var(--okb);border-color:var(--ok)':''}">${o?`${nameIsCust(o)?'':`<div class="mut" style="font-weight:600">${esc(o.customer||'Без заказчика')}</div>`}<div class="row"><b>${esc(o.name)}</b>${r.urgent&&!done?'<span class="b bad">Срочно</span>':''}</div><div class="mut">${esc(o.addr)}</div>`:`<div class="row"><b>Прочая заявка</b>${r.urgent&&!done?'<span class="b bad">Срочно</span>':''}</div>`}${r.system?`<div class="mut">${sysS(r.system)}</div>`:''}${r.category?`<div style="margin-top:4px"><span class="b new">${esc(r.category)}</span></div>`:''}<p style="margin:8px 0">${esc(r.body)}</p><div class="mut">${r.created_by_name?'От: '+esc(r.created_by_name)+'. ':''}Создана ${fmtT(r.created_at)}${r._pending&&!done?' (не отправлено)':''}</div>${done?`<div style="margin:6px 0;color:var(--ok);font-weight:500">Выполнено ${fmtT(r.done_at)}${r.done_by_name?', '+esc(r.done_by_name):''}${r._pending?' (не отправлено)':''}</div>${r.done_comment?`<div class="mut">${esc(r.done_comment)}</div>`:''}`:''}${canDo?`<label class="chk" style="margin:10px 0 0"><input type="checkbox" ${done?'checked':''} ${done&&!ADMIN?'disabled':''} onchange="reqDone('${r.id}',this)">Выполнено</label>`:(done?'':'<div class="mut" style="margin-top:8px">Выполняет администратор</div>')}${ADMIN?`<button class="btn d" style="margin:8px 0 0;padding:9px" onclick="reqDel('${r.id}')">Удалить заявку</button>`:''}</div>`}
@@ -468,9 +479,12 @@ h+=`<button class="btn" onclick="go('reqform')">${ADMIN?'+ Заявка для �
 if(!L.length)return h+'<div class="empty">Заявок нет</div>';
 return h+L.map(reqCard).join('')}
 async function reqDone(id,cb){const r=S.reqs.find(x=>x.id===id);if(!r)return;if(r.to_role==='admin'&&!ADMIN){cb.checked=r.status==='done';return}
-if(r.status==='done'){cb.checked=true;if(!ADMIN)return;if(!needOnline()||!confirm('Вернуть заявку в работу?'))return;
+if(r.status==='done'){cb.checked=true;if(!ADMIN)return;const lc=S.checks.find(x=>x.request_id===id&&!x._pending);
+if(!needOnline()||!confirm('Вернуть заявку в работу?'+(lc?' Запись внепланового выезда по ней будет удалена из журнала.':'')))return;
+if(lc){try{await purge([lc.id],S.photos.filter(p=>p.check_id===lc.id&&!p._pending),'all')}catch(e){alert('Не удалось удалить запись выезда: '+(e.message||e));return}}
 const e=await sb.from('requests').update({status:'open',done_at:null,done_by_name:null,done_comment:null}).eq('id',id);if(e.error){alert('Ошибка: '+e.error.message);return}await load();return}
 if(!cb.checked)return;
+if(r.to_role!=='admin'&&r.object_id&&S.objs.some(o=>o.id===r.object_id)){cb.checked=false;go('reqdone',id);return}
 let name=S.tech;if(!name){name=(prompt('Ваша фамилия')||'').trim();if(!name){cb.checked=false;return}S.tech=name;try{localStorage.setItem('pozh-tech',name)}catch(e){}}
 const cmt=prompt('Комментарий к выполненной работе (необязательно)');if(cmt===null){cb.checked=false;return}
 await enqueue({type:'reqdone',id,tname:name,cmt:cmt.trim(),at:new Date().toISOString()})}
@@ -511,6 +525,10 @@ async function savePhotos(ids){const C=window.Capacitor,P=window.NativePlugins||
 try{const ps=ids.map(id=>S.photos.find(x=>x.id===id)).filter(Boolean);if(!ps.length)return;
 toast('Готовлю фото…');
 const blobs=[];for(const p of ps)blobs.push(await photoBlob(p));
+if(isNative()&&P.Media){try{const AL='Журнал ТО';try{await P.Media.createAlbum({name:AL})}catch(e){}
+const al=((await P.Media.getAlbums()).albums||[]).find(a=>a.name===AL);if(!al)throw new Error('нет альбома');
+const t=Date.now();for(let i=0;i<blobs.length;i++)await P.Media.savePhoto({path:'data:image/jpeg;base64,'+await blobB64(blobs[i]),albumIdentifier:al.identifier,fileName:'zhurnal-'+t+'-'+(i+1)});
+toast('Сохранено в галерею (альбом «'+AL+'»): '+blobs.length);return}catch(e){toast('В галерею не вышло, открываю меню')}}
 if(P.Filesystem&&P.Share){const uris=[];
 for(let i=0;i<blobs.length;i++){const r=await P.Filesystem.writeFile({path:'zhurnal-'+Date.now()+'-'+(i+1)+'.jpg',data:await blobB64(blobs[i]),directory:'CACHE'});uris.push(r.uri)}
 await P.Share.share({title:'Фото журнала',dialogTitle:'Сохранить или отправить фото',files:uris});return}
@@ -567,7 +585,10 @@ PN.addListener('pushNotificationReceived',()=>{pollLite()});
 PN.addListener('pushNotificationActionPerformed',a=>{const d=(a.notification&&a.notification.data)||{};
 if(d.kind==='fault'&&d.object_id){if(d.system)v.sys=d.system;go('obj',d.object_id)}else go('reqs');pollLite()})}
 await PN.register()}catch(e){PUSH_STATE='error';PUSH_ERR=String((e&&e.message)||e)}}
-if(!isNative()&&'serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{})});
+if(!isNative()&&'serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))window.addEventListener('load',()=>{const had=!!navigator.serviceWorker.controller;
+navigator.serviceWorker.register('sw.js').then(r=>{r.update().catch(()=>{});document.addEventListener('visibilitychange',()=>{if(!document.hidden)r.update().catch(()=>{})})}).catch(()=>{});
+navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!had||document.getElementById('upd'))return;const b=document.createElement('div');b.id='upd';b.textContent='Вышла новая версия. Нажмите, чтобы обновить';
+b.style.cssText='position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom,0px));z-index:99;background:#1c1c1e;color:#fff;padding:14px;border-radius:12px;text-align:center;font-weight:600';b.onclick=()=>location.reload();document.body.appendChild(b)})});
 const delBtn=c=>(ADMIN&&!c._pending)?`<button class="btn d" style="margin:8px 0 0;padding:9px" onclick="event.stopPropagation();delCheck('${c.id}')">Удалить проверку и её фото</button>`:'';
 const chunk=(a,n)=>{const r=[];for(let i=0;i<a.length;i+=n)r.push(a.slice(i,i+n));return r};
 async function purge(checkIds,photoRows,mode){
@@ -612,6 +633,147 @@ return `<button class="back" onclick="go('obj','${o.id}')">‹ ${esc(oLab(o))}</
 <button class="btn" onclick="saveContact('${o.id}')">Сохранить</button>`}
 async function saveContact(oid){const c=$('#ct_name').value.trim(),ph=$('#ct_phone').value.trim();
 await enqueue({type:'contact',oid,contact:c,phone:ph});go('obj',oid)}
+/* ===== Закрытие заявки администратора -> внеплановый выезд ===== */
+function vReqDone(){const r=S.reqs.find(x=>x.id===v.id);if(!r||r.status!=='open')return '<div class="empty">Заявка не найдена или уже выполнена</div>';
+const o=S.objs.find(x=>x.id===r.object_id);if(!o)return '<div class="empty">Объект заявки не найден</div>';
+const ks=Object.keys(SYS).filter(k=>o.systems&&o.systems[k]),sk=ks.includes(r.system)?r.system:ks[0];
+return `<button class="back" onclick="go('reqs')">‹ Заявки</button>
+<div class="card"><b>${esc(oLab(o))}</b><div class="mut">${esc(o.addr)}</div><p style="margin:8px 0">${esc(r.body)}</p></div>
+<div class="mut" style="margin:0 0 8px">Работы по заявке будут записаны в журнал как внеплановый выезд на объект.</div>
+<label>Система</label><select id="rd_sys">${ks.map(k=>`<option value="${k}" ${k===sk?'selected':''}>${SYS[k].s}</option>`).join('')}</select>
+<label>Результат</label><select id="rd_res"><option value="n">Работы выполнены</option><option value="1">Неисправность устранена</option><option value="0">Неисправность не устранена</option></select>
+<label>Дата выезда</label><input type="date" id="rd_date" value="${today()}">
+<label>Техник 1</label><input id="rd_t1" list="tl" value="${esc(S.tech)}" placeholder="Фамилия И. О.">
+<label>Техник 2 (если выезжали двое)</label><input id="rd_t2" list="tl" placeholder="Фамилия И. О.">
+<datalist id="tl">${techList().map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
+<label>Что сделано (обязательно, если неисправность не устранена)</label><textarea id="rd_com" rows="3"></textarea>
+<label>Акт</label><select id="rd_act"><option value="0">Акт не подписан</option><option value="1">Акт подписан</option></select>
+<label>Фото страницы журнала (можно несколько)</label><input type="file" id="rd_ph" accept="image/*" multiple>
+<label class="chk"><input type="checkbox" id="rd_da">Составить дефектную ведомость после записи</label>
+<button class="btn" onclick="saveReqDone('${r.id}')">Закрыть заявку и записать выезд</button>`}
+async function saveReqDone(rid){if(saving)return;const r=S.reqs.find(x=>x.id===rid),o=r&&S.objs.find(x=>x.id===r.object_id);if(!o||r.status!=='open')return;
+const tech=$('#rd_t1').value.trim(),tech2=$('#rd_t2').value.trim(),res=$('#rd_res').value,cmt=$('#rd_com').value.trim();
+if(!tech){alert('Укажите фамилию техника');return}
+if(res==='0'&&!cmt){alert('Опишите, что сделано и что осталось неисправным');$('#rd_com').focus();return}
+S.tech=tech;try{localStorage.setItem('pozh-tech',tech)}catch(e){}
+const k=$('#rd_sys').value,date=$('#rd_date').value||today(),fs=[...$('#rd_ph').files],dc=$('#rd_da').checked,si=sinfo(o.id,k);
+saving=true;try{const id=uuid(),photos=[];let bp=0;
+for(const f of fs){try{photos.push(await mkPhoto(o.id,id,date.slice(0,7),f))}catch(e){bp++}}
+await enqueue({type:'reqvisit',rid,tname:tech,cmt,id,row:{object_id:o.id,system:k,date,tech,tech2,bad:res==='0'?[OTHER]:[],comment:'По заявке: '+r.body+(cmt?'. Выполнено: '+cmt:''),act_signed:$('#rd_act').value==='1',life_exceeded:!!(si.year_in&&yearsIn(si,date)>10),unplanned:true,fixed:res==='n'?null:res==='1',request_id:rid},photos});
+v.rf='open';v.rt='tech';if(dc)dNew(o.id,id,k);else go('reqs');
+if(bp)alert('Выезд записан, но не удалось обработать фото: '+bp)}finally{saving=false}}
+
+/* ===== Дефектные ведомости ===== */
+let DA=null;
+const dPrefG=()=>{try{return JSON.parse(localStorage.getItem('pozh-dpref')||'{}')}catch(e){return{}}};
+const dPref=o=>((dPrefG().c||{})[(o&&o.customer)||'']||{});
+const dName=o=>o.customer&&!nameIsCust(o)?o.customer+', '+o.name:o.name;
+const dRow=()=>({place:'',elem:'',qty:'',desc:'Не исправен',method:'Замена на новые',note:'Истёк предельный срок эксплуатации, ремонту не подлежит'});
+function dNew(oid,cid,k){const o=S.objs.find(x=>x.id===oid),c=cid&&S.checks.find(x=>x.id===cid),sk=k||(c&&c.system)||v.sys,P=dPref(o);
+DA={id:uuid(),object_id:oid||'',check_id:cid||null,system:sk,sys_title:sk==='fire'?'АПС':(SYS[sk]||{s:''}).s,obj_name:o?dName(o):'',addr:o?o.addr:'',act_date:(c&&c.date)||today(),appr_date:today(),appr_pos:P.pos||'',appr_name:P.ap||'',contractor_name:dPrefG().contr||S.tech||'',customer_name:P.rep||'',rows:[dRow()],isNew:1};
+v.dfrom='';go('dact',oid)}
+function dEdit(id){const a=S.dacts.find(x=>x.id===id);if(!a)return;
+DA=Object.assign({},a,{rows:(a.rows&&a.rows.length?a.rows:[dRow()]).map(r=>Object.assign({},r)),act_date:a.act_date||'',appr_date:a.appr_date||'',isNew:0});
+v.dfrom=v.t==='dacts'?'dacts':'';go('dact',a.object_id)}
+function dObjOpts(q){q=(q||'').toLowerCase();const g={},NO='Без заказчика';
+S.objs.filter(o=>((o.customer||'')+' '+o.name+' '+o.addr).toLowerCase().includes(q)).forEach(o=>(g[o.customer||NO]=g[o.customer||NO]||[]).push(o));
+return '<option value="">— выберите объект —</option>'+Object.keys(g).sort().map(k=>`<optgroup label="${esc(k)}">${g[k].sort((a,b)=>a.name.localeCompare(b.name)).map(o=>`<option value="${o.id}" ${o.id===DA.object_id?'selected':''}>${esc(o.name)} — ${esc(o.addr)}</option>`).join('')}</optgroup>`).join('')}
+function dRead(){if(!DA||!$('#d_name'))return;const g=i=>$('#d_'+i).value.trim();
+Object.assign(DA,{obj_name:g('name'),addr:g('addr'),sys_title:g('sys'),act_date:$('#d_date').value,appr_date:$('#d_adate').value,appr_pos:g('pos'),appr_name:g('ap'),contractor_name:g('contr'),customer_name:g('cust')});
+document.querySelectorAll('[data-f]').forEach(e=>{DA.rows[e.dataset.i][e.dataset.f]=e.value.trim()})}
+function dPick(id){dRead();const o=S.objs.find(x=>x.id===id);DA.object_id=id;
+if(o){const P=dPref(o);DA.obj_name=dName(o);DA.addr=o.addr;if(!DA.appr_pos)DA.appr_pos=P.pos||'';if(!DA.appr_name)DA.appr_name=P.ap||'';if(!DA.customer_name)DA.customer_name=P.rep||''}render()}
+function dAddRow(){dRead();DA.rows.push(dRow());render()}
+function dDelRow(i){dRead();DA.rows.splice(i,1);if(!DA.rows.length)DA.rows.push(dRow());render()}
+function dBack(){const o=DA&&DA.object_id;DA=null;if(o&&v.dfrom!=='dacts')go('obj',o);else go('dacts')}
+function vDact(){if(!DA)return vDacts();const A=DA,dl=(id,a)=>`<datalist id="${id}">${a.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`;
+return `<button class="back" onclick="dBack()">‹ Назад</button>
+<label>Объект заказчика (выберите из списка)</label><input type="search" placeholder="Поиск по заказчику, названию, адресу" oninput="$('#d_obj').innerHTML=dObjOpts(this.value)"><select id="d_obj" onchange="dPick(this.value)">${dObjOpts('')}</select>
+<label>Наименование объекта</label><input id="d_name" value="${esc(A.obj_name)}">
+<label>Адрес</label><input id="d_addr" value="${esc(A.addr)}">
+<label>Система (строка под заголовком)</label><input id="d_sys" value="${esc(A.sys_title)}">
+<label>По состоянию на</label><input type="date" id="d_date" value="${esc(A.act_date)}">
+<label>Дата утверждения</label><input type="date" id="d_adate" value="${esc(A.appr_date)}">
+<label>Утверждает: должность</label><input id="d_pos" value="${esc(A.appr_pos)}" placeholder="Например, Директор">
+<label>Утверждает: расшифровка</label><input id="d_ap" value="${esc(A.appr_name)}" placeholder="И. О. Фамилия">
+<label>Представитель подрядчика</label><input id="d_contr" value="${esc(A.contractor_name)}" placeholder="Фамилия И. О.">
+<label>Представитель заказчика</label><input id="d_cust" value="${esc(A.customer_name)}" placeholder="Фамилия И. О.">
+<h3>Дефекты</h3>
+${A.rows.map((r,i)=>`<div class="card"><div class="row"><b>№ ${i+1}</b><button class="back" style="padding:0;color:var(--bad)" onclick="dDelRow(${i})">Удалить строку</button></div>
+<label>Место дефекта</label><input data-i="${i}" data-f="place" value="${esc(r.place)}" placeholder="Например, Подвал, шк. 29">
+<label>Дефектный элемент</label><input data-i="${i}" data-f="elem" value="${esc(r.elem)}" placeholder="Например, ИПД-3.1М">
+<label>Количество</label><input data-i="${i}" data-f="qty" value="${esc(r.qty)}" inputmode="numeric">
+<label>Описание дефекта</label><input data-i="${i}" data-f="desc" list="dl_d" value="${esc(r.desc)}">
+<label>Метод устранения дефекта</label><input data-i="${i}" data-f="method" list="dl_m" value="${esc(r.method)}">
+<label>Примечание</label><input data-i="${i}" data-f="note" list="dl_n" value="${esc(r.note)}"></div>`).join('')}
+${dl('dl_d',['Не исправен','Не исправен (частые ложные срабатывания)','Не исправен (механические повреждения)','Отсутствует'])}${dl('dl_m',['Замена на новые','Ремонт','Восстановление'])}${dl('dl_n',['Истёк предельный срок эксплуатации, ремонту не подлежит','Ремонту не подлежит'])}
+<button class="btn s" onclick="dAddRow()">+ Добавить строку</button>
+<button class="btn" onclick="dSave()">Сохранить ведомость</button>
+<button class="btn s" onclick="dExportDraft()">Выгрузить в Word</button>`}
+async function dSave(){dRead();const A=DA;if(!A.object_id){alert('Выберите объект из списка');return}
+const rows=A.rows.filter(r=>r.elem||r.place||r.qty);if(!rows.some(r=>r.elem)){alert('Укажите дефектный элемент хотя бы в одной строке');return}
+const o=S.objs.find(x=>x.id===A.object_id);
+try{const G=dPrefG();G.contr=A.contractor_name;G.c=G.c||{};G.c[(o&&o.customer)||'']={pos:A.appr_pos,ap:A.appr_name,rep:A.customer_name};localStorage.setItem('pozh-dpref',JSON.stringify(G))}catch(e){}
+await enqueue({type:'dact',row:{id:A.id,object_id:A.object_id,check_id:A.check_id,system:A.system,obj_name:A.obj_name,addr:A.addr,sys_title:A.sys_title,act_date:A.act_date||null,appr_date:A.appr_date||null,appr_pos:A.appr_pos,appr_name:A.appr_name,contractor_name:A.contractor_name,customer_name:A.customer_name,rows,updated_at:new Date().toISOString()}});
+DA=null;go(v.dfrom==='dacts'?'dacts':'obj',A.object_id)}
+const dCard=a=>`<div class="card"><div class="row"><b>${fmt(a.act_date||a.created_at)}</b><span class="mut">${sysS(a.system)}</span></div><div class="mut">${esc(a.obj_name||'')}</div><div class="mut">${(a.rows||[]).map(r=>esc(r.elem)+(r.qty?' × '+esc(r.qty):'')).join('; ')}</div>${a._pending?'<span class="b new">Не отправлено</span>':''}
+<button class="btn s" style="margin:8px 0 0;padding:9px" onclick="dEdit('${a.id}')">Открыть / изменить</button><button class="btn s" style="margin:8px 0 0;padding:9px" onclick="dExport('${a.id}')">Выгрузить в Word</button>${ADMIN&&!a._pending?`<button class="btn d" style="margin:8px 0 0;padding:9px" onclick="dDel('${a.id}')">Удалить ведомость</button>`:''}</div>`;
+const dactsHtml=oid=>{const a=S.dacts.filter(x=>x.object_id===oid);return a.length?'<h3>Дефектные ведомости</h3>'+a.map(dCard).join(''):''};
+function vDacts(){const m=v.dm||'',a=S.dacts.filter(x=>!m||(x.act_date||x.created_at||'').startsWith(m)).sort((x,y)=>(y.act_date||'').localeCompare(x.act_date||''));
+return repTabs()+'<label>Месяц</label>'+monthSel('dm',m,true)+`<div class="mut" style="margin:0 0 10px">Ведомостей: ${a.length}. Новую ведомость создают на странице объекта, при проверке или при закрытии заявки.</div>`+(a.length?a.map(dCard).join(''):'<div class="empty">Дефектных ведомостей нет</div>')}
+async function dDel(id){if(!ADMIN||!needOnline()||!confirm('Удалить дефектную ведомость?'))return;const e=await sb.from('defect_acts').delete().eq('id',id);if(e.error){alert('Ошибка: '+e.error.message);return}await load()}
+function dExport(id){const a=S.dacts.find(x=>x.id===id);if(a)dWord(a)}
+function dExportDraft(){dRead();dWord(DA)}
+function dWord(a){try{const rows=(a.rows||[]).filter(r=>r.elem||r.place||r.qty);if(!rows.length){alert('В ведомости нет строк');return}
+saveFile(dDocx(Object.assign({},a,{rows})),'defektnaya-vedomost-'+(a.act_date||today())+'-'+Date.now().toString(36).slice(-3)+'.docx')}catch(e){alert('Не удалось создать файл: '+(e.message||e))}}
+
+/* ===== Файл .docx без внешних библиотек ===== */
+const crcT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc32=b=>{let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=crcT[(c^b[i])&255]^(c>>>8);return(c^0xFFFFFFFF)>>>0};
+function zipStore(files){const te=new TextEncoder(),parts=[],cd=[],u16=n=>[n&255,n>>8&255],u32=n=>[n&255,n>>8&255,n>>16&255,n>>>24&255];let off=0;
+for(const [name,str] of files){const nb=te.encode(name),db=te.encode(str),crc=crc32(db),
+lh=new Uint8Array([0x50,0x4b,3,4,...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(db.length),...u32(db.length),...u16(nb.length),...u16(0)]);
+parts.push(lh,nb,db);
+cd.push(new Uint8Array([0x50,0x4b,1,2,...u16(20),...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(db.length),...u32(db.length),...u16(nb.length),...u16(0),...u16(0),...u16(0),...u16(0),...u32(0),...u32(off)]),nb);
+off+=lh.length+nb.length+db.length}
+const cs=cd.reduce((s,x)=>s+x.length,0);
+return new Blob([...parts,...cd,new Uint8Array([0x50,0x4b,5,6,0,0,0,0,...u16(files.length),...u16(files.length),...u32(cs),...u32(off),0,0])],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'})}
+const MON=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const dLong=iso=>{const m=/^(\d{4})-(\d\d)-(\d\d)/.exec(iso||'');return m?'«'+m[3]+'» '+MON[+m[2]-1]+' '+m[1]+' г.':'«___» ______________ 20___ г.'};
+function dDocx(a){const X=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const R=(t,o={})=>`<w:r><w:rPr>${o.b?'<w:b/>':''}${o.u?'<w:u w:val="single"/>':''}<w:sz w:val="${o.sz||24}"/></w:rPr><w:t xml:space="preserve">${X(t)}</w:t></w:r>`;
+const U=(t,n,o={})=>{t=String(t||'');return R(t.length<n?t+'\u00A0'.repeat(n-t.length):t,Object.assign({u:1},o))};
+const P=(r,o={})=>`<w:p><w:pPr><w:spacing w:before="${o.before||0}" w:after="${o.after==null?120:o.after}"/>${o.ind?`<w:ind w:left="${o.ind}"/>`:''}${o.jc?`<w:jc w:val="${o.jc}"/>`:''}</w:pPr>${r}</w:p>`;
+const sm=t=>R(t,{sz:16}),nb=n=>'\u00A0'.repeat(n);
+const W=[500,1500,1500,650,2056,1650,2350],bd=['top','left','bottom','right','insideH','insideV'].map(s=>`<w:${s} w:val="single" w:sz="4" w:space="0" w:color="000000"/>`).join('');
+const tc=(t,w,o={})=>`<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${P(R(t,{sz:20,b:o.b}),{jc:o.jc||'left',after:0})}</w:tc>`;
+const head=['№','Место дефекта','Дефектный элемент','Кол.','Описание дефекта','Метод устранения дефекта','Примечание'];
+const tbl=`<w:tbl><w:tblPr><w:tblW w:w="10206" w:type="dxa"/><w:tblBorders>${bd}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="70" w:type="dxa"/><w:right w:w="70" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${W.map(w=>`<w:gridCol w:w="${w}"/>`).join('')}</w:tblGrid>`+
+`<w:tr><w:trPr><w:tblHeader/></w:trPr>${head.map((h,i)=>tc(h,W[i],{b:1,jc:'center'})).join('')}</w:tr>`+
+a.rows.map((r,i)=>`<w:tr><w:trPr><w:cantSplit/><w:trHeight w:val="600" w:hRule="atLeast"/></w:trPr>${[String(i+1),r.place,r.elem,r.qty,r.desc,r.method,r.note].map((t,j)=>tc(t,W[j],{jc:j===0||j===3?'center':'left'})).join('')}</w:tr>`).join('')+'</w:tbl>';
+const body=
+P(R('УТВЕРЖДАЮ ')+U(a.appr_pos,26),{ind:5000})+P(sm(nb(34)+'(должность)'),{ind:5000})+
+P(U('',16)+R(' ')+U(a.appr_name,18),{ind:5000})+P(sm(nb(8)+'(подпись)'+nb(22)+'(расшифровка)'),{ind:5000})+
+P(R(dLong(a.appr_date)),{ind:5000,after:480})+
+P(R('ДЕФЕКТНАЯ ВЕДОМОСТЬ',{b:1,sz:28}),{jc:'center'})+P(R(a.sys_title||nb(20),{b:1,u:1,sz:28}),{jc:'center',after:360})+
+P(R('Наименование объекта: ')+U(a.obj_name,30),{after:160})+P(R('по адресу: ')+U(a.addr,40),{after:160})+P(R('по состоянию на '+dLong(a.act_date)),{after:240})+
+tbl+
+P(R('Представитель подрядчика: ')+U('',22)+R(' / ')+U(a.contractor_name,26),{before:480,after:0})+P(sm(nb(60)+'(подпись)'+nb(24)+'(расшифровка)'),{after:360})+
+P(R('Представитель заказчика: ')+U('',22)+R(' / ')+U(a.customer_name,26),{after:0})+P(sm(nb(58)+'(подпись)'+nb(24)+'(расшифровка)'),{after:0});
+const NS='xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"',H='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+return zipStore([
+['[Content_Types].xml',H+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'],
+['_rels/.rels',H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'],
+['word/_rels/document.xml.rels',H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+['word/styles.xml',H+`<w:styles ${NS}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:lang w:val="ru-RU"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style></w:styles>`],
+['word/document.xml',H+`<w:document ${NS}><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>`]])}
+async function saveFile(blob,name){const C=window.Capacitor,P=window.NativePlugins||(C&&C.Plugins)||{};
+try{if(isNative()&&P.Filesystem){const data=await blobB64(blob);let ok=false;
+try{await P.Filesystem.writeFile({path:name,data,directory:'DOCUMENTS',recursive:true});ok=true}catch(e){}
+if(ok){if(P.Share&&confirm('Файл сохранён в папку «Документы» на телефоне:\n'+name+'\n\nОтправить его кому-нибудь?')){const r=await P.Filesystem.getUri({path:name,directory:'DOCUMENTS'});await P.Share.share({title:name,files:[r.uri]})}else if(!P.Share)alert('Файл сохранён в папку «Документы»: '+name);return}
+if(P.Share){const r=await P.Filesystem.writeFile({path:name,data,directory:'CACHE'});await P.Share.share({title:name,dialogTitle:'Сохранить или отправить файл',files:[r.uri]});return}}
+const l=document.createElement('a');l.href=URL.createObjectURL(blob);l.download=name;document.body.appendChild(l);l.click();setTimeout(()=>{l.remove();URL.revokeObjectURL(l.href)},4000)}
+catch(e){if(e&&/cancel|abort/i.test(String(e.message||e)))return;alert('Не удалось сохранить файл: '+(e.message||e))}}
 function vLogin(){return `<label>Email</label><input id="l_e" type="email" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"><label>Пароль</label><input id="l_p" type="password" autocomplete="current-password"><button class="btn" onclick="login()">Войти</button><p class="mut">${esc(STATUS)}</p>`}
 async function login(){if(SUPABASE_URL.includes('ВАШ')||SUPABASE_KEY.includes('ВАШ')){STATUS='В приложении не вписаны адрес и ключ Supabase';render();return}
 const r=await sb.auth.signInWithPassword({email:$('#l_e').value.trim(),password:$('#l_p').value});
@@ -620,14 +782,15 @@ STATUS='';await start(r.data.user)}
 async function start(u){USER=u;DB=true;
 try{localStorage.setItem('pozh-user',JSON.stringify({id:u.id,email:u.email||''}))}catch(e){}
 v={t:'list',id:null,q:'',sys:'fire'};let cached=false;
-try{const c=await IDB.get('cache');if(c&&c.uid===u.id){BASE={objs:c.objs||[],checks:c.checks||[],photos:c.photos||[],sinfo:c.sinfo||[],reqs:c.reqs||[],notes:c.notes||[]};ADMIN=!!c.admin;cached=true}}catch(e){}
-try{OB=await IDB.all()||[]}catch(e){OB=[]}
+try{const c=await IDB.get('cache');if(c&&c.uid===u.id){BASE={objs:c.objs||[],checks:c.checks||[],photos:c.photos||[],sinfo:c.sinfo||[],reqs:c.reqs||[],notes:c.notes||[],dacts:c.dacts||[]};ADMIN=!!c.admin;cached=true}}catch(e){}
+let foreign=0;try{const all=await IDB.all()||[];OB=[];for(const x of all){if(!x.uid){x.uid=u.id;await IDB.put(x)}if(x.uid===u.id)OB.push(x);else foreign++}}catch(e){OB=[]}
 mergeView();
 if(cached){render();await load()}else{await load();render()}
-flush();initPush()}
+flush();initPush();if(foreign)setTimeout(()=>alert('На этом телефоне остались неотправленные записи другого пользователя: '+foreign+'. От вашего имени они не отправятся. Войдите под тем аккаунтом, чтобы они ушли.'),600)}
 async function logout(){await dropToken();try{await Promise.race([sb.auth.signOut(),new Promise(r=>setTimeout(r,3000))])}catch(e){}
-try{Object.keys(localStorage).filter(k=>k.indexOf('sb-')===0).forEach(k=>localStorage.removeItem(k));localStorage.removeItem('pozh-user')}catch(e){}
-USER=null;DB=null;ADMIN=false;BASE={objs:[],checks:[],photos:[],sinfo:[],reqs:[],notes:[]};S.objs=[];S.checks=[];S.photos=[];S.sinfo=[];S.reqs=[];S.notes=[];STATUS='';render()}
+try{Object.keys(localStorage).filter(k=>k.indexOf('sb-')===0).forEach(k=>localStorage.removeItem(k));localStorage.removeItem('pozh-user');localStorage.removeItem('pozh-tech');localStorage.removeItem('pozh-dpref')}catch(e){}
+try{await IDB.set('cache',null)}catch(e){}
+USER=null;DB=null;ADMIN=false;BASE={objs:[],checks:[],photos:[],sinfo:[],reqs:[],notes:[],dacts:[]};S.dacts=[];S.objs=[];S.checks=[];S.photos=[];S.sinfo=[];S.reqs=[];S.notes=[];STATUS='';render()}
 render();
 (async()=>{let sess=null,err=null;
 try{const r=await sb.auth.getSession();sess=r.data.session;err=r.error}catch(e){err=e}
